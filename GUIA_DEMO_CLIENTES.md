@@ -1,7 +1,7 @@
-# LUKARIS ONE 1.10 — Guía rápida para demostraciones
+# LK ONE ONE 1.10 — Guía rápida para demostraciones
 
 ## Qué mostrar
-LUKARIS ONE es una plataforma de gestión adaptable a negocios de servicios, comercio, alimentos, salud y bienestar, educación, construcción, logística, turismo y negocios digitales.
+LK ONE ONE es una plataforma de gestión adaptable a negocios de servicios, comercio, alimentos, salud y bienestar, educación, construcción, logística, turismo y negocios digitales.
 
 ### Recorrido recomendado (8–12 minutos)
 1. **Resumen:** muestra las métricas, próximas citas, operaciones y accesos rápidos.

@@ -6,7 +6,7 @@
   else root.LukarisCore = factory();
 })(typeof self !== 'undefined' ? self : globalThis, function () {
 
-const APP_VERSION = '1.10', SCHEMA_VERSION = 4, KEY = 'lukaris-beta-v02';
+const APP_VERSION = '1.11', SCHEMA_VERSION = 4, KEY = 'lukaris-beta-v02';
 const MAX_FILE_BYTES = 10 * 1024 * 1024;
 const FILE_EXT = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'pdf', 'doc', 'docx', 'xls', 'xlsx', 'csv', 'txt', 'ppt', 'pptx', 'odt', 'ods'];
 const APPT_STATUS = ['Confirmada', 'Pendiente', 'Atendida', 'Cancelada'];
@@ -51,7 +51,7 @@ const activeSales = db => db.sales.filter(s => !s.voided);
 // ---------- datos iniciales y migración ----------
 function defaultProfile() {
   let tz = 'UTC'; try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'; } catch (e) {}
-  return { name: 'Mi negocio', type: 'services', currency: 'COP', country: '', language: 'es', timezone: tz, accountMode: 'both', onboarded: false, modules: [] };
+  return { name: 'Mi negocio', type: 'services', currency: 'COP', country: '', language: 'es', timezone: tz, accountMode: 'both', onboarded: false, modules: [], appearance: { theme: 'emerald', font: 'system', scale: 'normal', radius: 'normal' } };
 }
 function defaultDb() {
   const d = today();
@@ -71,6 +71,7 @@ function migrate(raw) {
   db.meta = isObj(db.meta) ? db.meta : {};
   db.profile = { ...defaultProfile(), ...(isObj(db.profile) ? db.profile : {}) };
   if (!Array.isArray(db.profile.modules)) db.profile.modules = [];
+  db.profile.appearance = { theme: 'emerald', font: 'system', scale: 'normal', radius: 'normal', ...(isObj(db.profile.appearance) ? db.profile.appearance : {}) };
   db.automations = isObj(db.automations) ? db.automations : { appointmentReminder: false, followup: false, birthday: false, lowStock: false, leadWelcome: false };
   for (const k of LISTS) if (!Array.isArray(db[k])) db[k] = [];
   if (!Array.isArray(db.organizationUnits) || !db.organizationUnits.length)
@@ -182,7 +183,7 @@ function validate(type, raw, db, ctx = {}) {
     }
     case 'profile': {
       text('name', { req: true, max: 120 }); text('country', { max: 60 });
-      oneOf('type', ['retail', 'services', 'food', 'health', 'education', 'construction', 'automotive', 'logistics', 'hospitality', 'digital', 'other']);
+      oneOf('type', ['retail', 'services', 'beauty', 'food', 'health', 'education', 'construction', 'automotive', 'logistics', 'hospitality', 'digital', 'other']);
       oneOf('currency', ['COP', 'USD', 'EUR', 'GBP', 'MXN', 'PEN', 'CLP', 'ARS', 'BRL']); oneOf('language', ['es', 'en', 'pt', 'fr']);
       oneOf('accountMode', ['single', 'group', 'both']);
       const tz = text('timezone', { req: true, max: 60 });

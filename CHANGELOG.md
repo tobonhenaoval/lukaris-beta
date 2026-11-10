@@ -1,3 +1,10 @@
+## [1.11] - 2026-11-10
+### Añadido
+- Marca visible de la aplicación actualizada a **LK ONE**.
+- Nueva actividad adaptable: belleza, peluquerías, barberías y spas, con módulos recomendados para agenda, CRM, servicios, finanzas, marketing e informes.
+- Personalización visual guardada en el perfil: cinco temas de color, cuatro opciones tipográficas, tres tamaños de texto y tres estilos de bordes.
+- Migración compatible de perfiles anteriores con valores visuales predeterminados.
+
 # Changelog
 
 ## [1.10] - 2026-11-10

@@ -1,4 +1,4 @@
-# LUKARIS — Versión 1.10 (beta con backend local)
+# LK ONE — Versión 1.11 (beta con backend local)
 
 Plataforma de gestión configurable para negocios de distintos sectores y países. La estrategia es un núcleo común más plantillas por industria, no una app distinta por oficio.
 
@@ -32,7 +32,7 @@ Requiere Node 18 o superior. No hay dependencias que instalar. `npm test` ejecut
 ## Núcleo común
 CRM (clientes y ficha), agenda opcional, cotizaciones, ventas, abonos y cuentas por cobrar, catálogo, inventario, operaciones y configuración internacional. Pendientes: equipo y permisos, suscripciones, automatizaciones conectadas y reportes avanzados.
 
-## Novedades de la 1.10
+## Novedades de la 1.11
 Backend local con persistencia en archivo, formularios con validación y edición/eliminación en todos los módulos, adjuntos de archivos en clientes y citas, filtros, respaldo con adjuntos y pruebas de navegador. Corrige un fallo de la 1.05 por el que los formularios no guardaban. Detalle en `CHANGELOG.md`.
 
 ## Limitaciones
