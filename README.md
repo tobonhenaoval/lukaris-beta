@@ -1,45 +1,42 @@
-# LUKARIS — Beta global (prototipo local)
+# LUKARIS — Versión 1.10 (beta con backend local)
 
-## Visión de producto
-LUKARIS no se limita a barberías ni a una región. Es una plataforma de gestión configurable para negocios de distintos sectores y países. La estrategia es construir un núcleo común y sumar plantillas de industria, no desarrollar una aplicación separada por cada oficio.
+Plataforma de gestión configurable para negocios de distintos sectores y países. La estrategia es un núcleo común más plantillas por industria, no una app distinta por oficio.
+
+## Preparar una demostración comercial\nConsulta `GUIA_DEMO_CLIENTES.md`. En Configuración puedes cargar un escenario ficticio completo para enseñar los módulos sin usar datos reales.\n\n## Ejecutar
+```bash
+npm start        # http://localhost:3000  ·  datos en ./data/
+```
+Con el servidor los datos se guardan en `data/lukaris.json` (escritura atómica, 14 copias diarias en `data/backups/`) y los adjuntos en `data/uploads/`. También se copian en el navegador, así que si el servidor se detiene la app sigue funcionando y se resincroniza al volver.
+
+Sin servidor: abre `index.html` directamente (Chrome, Edge o Safari). Funciona igual, guardando todo en el navegador (`localStorage` + IndexedDB para adjuntos).
+
+Variables opcionales: `PORT` (3000), `DATA_DIR` (`./data`), `HOST` (`127.0.0.1`; no lo cambies sin autenticación).
+
+## Probar
+```bash
+npm test
+```
+Requiere Node 18 o superior. No hay dependencias que instalar. `npm test` ejecuta pruebas de lógica (`core.js`), de la API (`server.js`) y, si Playwright con Chromium está instalado, pruebas de navegador que usan la app con clics reales (se omiten solas si no lo está; en CI solo corren las dos primeras).
+
+## Estructura
+| Archivo | Contenido |
+|---|---|
+| `server.js` | Backend local sin dependencias: API de datos y adjuntos, y sitio estático |
+| `core.js` | Lógica pura y reglas de negocio (validación, ventas, inventario, adjuntos, migración); usada por navegador, servidor y pruebas |
+| `index.html`, `styles.css`, `app.js` | Interfaz y capa de guardado (servidor con respaldo en navegador) |
+| `tests/` | `core`, `server`, `project` y `e2e` (navegador real) |
+| `docs/DECISIONS.md` | Decisiones y reglas de negocio (fuente única) |
+| `ROADMAP.md`, `CHANGELOG.md` | Plan y cambios |
+| `AGENTS.md`, `CLAUDE.md`, `CODEX.md` | Instrucciones para agentes de código |
 
 ## Núcleo común
-- CRM: clientes, contactos, historial y seguimiento.
-- Agenda: citas, reservas, reuniones, turnos y disponibilidad.
-- Ventas y caja: cotizaciones, ventas, pagos, abonos y cuentas por cobrar.
-- Catálogo: productos y servicios.
-- Inventario: existencias, costos y movimientos.
-- Operaciones: órdenes, proyectos, pedidos, tareas o solicitudes.
-- Equipo: empleados, roles, comisiones y permisos (pendiente).
-- Suscripciones: planes recurrentes de los clientes del negocio y del propio SaaS (pendiente).
-- Reportes y automatizaciones (pendiente).
+CRM (clientes y ficha), agenda opcional, cotizaciones, ventas, abonos y cuentas por cobrar, catálogo, inventario, operaciones y configuración internacional. Pendientes: equipo y permisos, suscripciones, automatizaciones conectadas y reportes avanzados.
 
-## Sectores objetivo
-Comercio/retail; servicios profesionales y personales; alimentos/restaurantes; salud/bienestar; educación/formación; construcción/instalaciones; automoción/mantenimiento; logística/transporte; turismo/alojamiento; servicios digitales/suscripciones; y otros negocios.
+## Novedades de la 1.10
+Backend local con persistencia en archivo, formularios con validación y edición/eliminación en todos los módulos, adjuntos de archivos en clientes y citas, filtros, respaldo con adjuntos y pruebas de navegador. Corrige un fallo de la 1.05 por el que los formularios no guardaban. Detalle en `CHANGELOG.md`.
 
-No todos los sectores necesitan todos los módulos. La configuración y las plantillas deben activar únicamente los flujos relevantes.
-
-## Ejecución local
-Abre `index.html` en Chrome, Edge o Safari. No requiere instalación ni internet.
-
-## Decisiones confirmadas
-- Mantener por ahora la beta simple, sin migrar el stack.
-- Diseñar para múltiples sectores y una audiencia internacional.
-- Trabajar localmente en el computador durante esta etapa.
-
-## Limitaciones de la beta
-Es una demostración frontend con `localStorage`; no es todavía multiempresa ni multiusuario real. No tiene sincronización, autenticación, backups, mensajería, pagos online, impuestos por país, traducciones completas ni soporte de zonas horarias. No usar como sistema de producción ni almacenar información sensible.
+## Limitaciones
+Un solo negocio y un solo usuario, sin autenticación: el servidor solo escucha en `127.0.0.1` y rechaza otros orígenes. No es multiempresa ni multiusuario real, no procesa pagos ni impuestos por país y no es un sistema contable certificado. **No usar en producción ni guardar información sensible.** Los adjuntos no están cifrados. Exporta un respaldo JSON (incluye adjuntos) con regularidad.
 
 ## Principio de arquitectura
-Separar:
-1. Núcleo universal.
-2. Módulos opcionales.
-3. Plantillas por sector.
-4. Configuración por país/idioma/moneda/zona horaria.
-5. Planes y límites comerciales del SaaS.
-
-
-## Beta 0.3
-Incluye onboarding adaptativo con módulos recomendados por actividad, configuración inicial internacional (país, moneda, idioma y zona horaria), estructura local de empresas/sucursales, planes globales de referencia y respaldo JSON exportable/importable.
-
-**Importante:** los planes y precios son una propuesta de producto, no una pasarela de cobro activa. La estructura multiempresa es una representación local; el aislamiento de datos y los permisos reales requieren backend.
+Separar: núcleo universal, módulos opcionales, plantillas por sector, configuración por país/idioma/moneda/zona horaria, y planes comerciales del SaaS.
