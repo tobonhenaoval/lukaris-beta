@@ -1,52 +1,45 @@
-# LK ONE — Versión 1.12 (beta con backend local)
+# LK ONE — Versión 1.13.6 (beta local, sin backend obligatorio)
 
-Plataforma de gestión configurable para negocios de distintos sectores y países. La estrategia es un núcleo común más plantillas por industria, no una app distinta por oficio.
+Plataforma de gestión configurable para negocios de distintos sectores y países. Esta entrega prioriza una interfaz más clara, una navegación más natural, un Dashboard configurable y controles de selección que permiten tanto buscar como elegir de listas desplegables.
 
-## Preparar una demostración comercial
-Consulta `GUIA_DEMO_CLIENTES.md`. En Configuración puedes cargar un escenario ficticio completo para enseñar los módulos sin usar datos reales.
+## Abrir la beta
 
-## Ejecutar
-```bash
-npm start        # http://localhost:3000  ·  datos en ./data/
-```
-Con el servidor los datos se guardan en `data/lukaris.json` (escritura atómica, 14 copias diarias en `data/backups/`) y los adjuntos en `data/uploads/`. También se copian en el navegador, así que si el servidor se detiene la app sigue funcionando y se resincroniza al volver.
+1. Descomprime el ZIP.
+2. Abre `index.html` en Chrome, Edge o Safari.
+3. Los datos se guardan en el navegador (`localStorage` + IndexedDB para adjuntos).
+4. Exporta respaldos JSON con regularidad desde Configuración.
 
-Sin servidor: abre `index.html` directamente (Chrome, Edge o Safari). Funciona igual, guardando todo en el navegador (`localStorage` + IndexedDB para adjuntos).
+No es necesario ejecutar `npm start` ni instalar dependencias para probar la modalidad local. `server.js` se conserva como herramienta opcional del proyecto; esta entrega puede probarse abriendo `index.html`.
 
-Variables opcionales: `PORT` (3000), `DATA_DIR` (`./data`), `HOST` (`127.0.0.1`; no lo cambies sin autenticación).
+## Novedades de 1.13.6
 
-## Probar
+- Interfaz más fluida: jerarquía visual, espaciado, controles, transiciones suaves y estados de foco más claros.
+- Dashboard dentro de Resumen con métricas, tendencias, actividad reciente, próximas citas y alertas operativas.
+- Dashboard personalizable por usuario: cada persona puede elegir qué widgets mostrar en su Resumen.
+- Selectores dobles en la interfaz general y en LK POS: cada lista conserva el desplegable tradicional y añade un campo para escribir y filtrar opciones. Así se puede buscar y después elegir sin perder la lista visible.
+- Los campos de texto libre siguen permitiendo escribir datos nuevos cuando el tipo de información lo permite; los campos relacionales (por ejemplo, cliente, profesional o producto) siguen requiriendo seleccionar un registro existente para preservar la integridad de los datos.
+- Diseño adaptable a escritorio y móvil, con respeto a la preferencia de movimiento reducido del sistema.
+- Se conservan las mejoras anteriores: ficha de clientes por documento, equipo, horarios, vacaciones, avisos de pedidos y funciones de LK POS.
+
+## Límites importantes
+
+Esta versión funciona sin backend, pero el almacenamiento es local a ese navegador y dispositivo. No hay sincronización multi-dispositivo. El PIN/contraseña local es demostrativo y no sustituye autenticación segura de producción.
+
+WhatsApp automático, tasas oficiales en tiempo real, facturación electrónica fiscal, pagos en línea, automatizaciones en segundo plano y autenticación centralizada requieren servicios externos y/o backend. No se presentan como funciones activas.
+
+## Probar el código
+
 ```bash
 npm test
 ```
-Requiere Node 18 o superior. No hay dependencias que instalar. `npm test` ejecuta pruebas de lógica (`core.js`), de la API (`server.js`) y, si Playwright con Chromium está instalado, pruebas de navegador que usan la app con clics reales (se omiten solas si no lo está; en CI solo corren las dos primeras).
+
+Requiere Node 18 o superior. Las pruebas de navegador se omiten si Playwright/Chromium no está instalado.
 
 ## Estructura
-| Archivo | Contenido |
-|---|---|
-| `server.js` | Backend local sin dependencias: API de datos y adjuntos, y sitio estático |
-| `catalog.js` | Actividades, módulos, países, monedas, roles/permisos y hash de PIN (UMD) |
-| `pos-core.js` | Motor de LK POS: mesas, pedidos, cocina, pagos, caja, reportes (UMD, sin DOM) |
-| `automation-core.js` | Recordatorios, cola de mensajes, asignación de profesionales (UMD) |
-| `pos-ui.js` | Interfaz de LK POS |
-| `core.js` | Lógica pura y reglas de negocio (validación, ventas, inventario, adjuntos, migración); usada por navegador, servidor y pruebas |
-| `index.html`, `styles.css`, `app.js` | Interfaz y capa de guardado (servidor con respaldo en navegador) |
-| `tests/` | `core`, `pos`, `server`, `project`, `e2e` y `e2e-pos` (navegador real) |
-| `docs/DECISIONS.md` | Decisiones y reglas de negocio (fuente única) |
-| `ROADMAP.md`, `CHANGELOG.md` | Plan y cambios |
-| `AGENTS.md`, `CLAUDE.md`, `CODEX.md` | Instrucciones para agentes de código |
 
-## Núcleo común
-CRM (clientes y ficha), agenda opcional, cotizaciones, ventas, abonos y cuentas por cobrar, catálogo, inventario, operaciones y configuración internacional. Pendientes: equipo y permisos, suscripciones, automatizaciones conectadas y reportes avanzados.
-
-## Novedades de la 1.12
-LK POS para gastronomía, multisector con 51 actividades, roles y PIN, calendario de citas, cola de WhatsApp y esquema 5. Detalle en `CHANGELOG.md`; uso en `GUIA_DE_USO.md`; pruebas en `REPORTE_DE_PRUEBAS.md`; pendientes en `PENDIENTES.md`; arquitectura en `RESUMEN_TECNICO.md`.
-
-## Novedades de la 1.11
-Backend local con persistencia en archivo, formularios con validación y edición/eliminación en todos los módulos, adjuntos de archivos en clientes y citas, filtros, respaldo con adjuntos y pruebas de navegador. Corrige un fallo de la 1.05 por el que los formularios no guardaban. Detalle en `CHANGELOG.md`.
-
-## Limitaciones
-Un solo negocio. El PIN de usuario es protección local básica (no autenticación de servidor): el servidor solo escucha en `127.0.0.1` y rechaza otros orígenes. No es multiempresa ni multiusuario real, no procesa pagos ni impuestos por país y no es un sistema contable certificado. **No usar en producción ni guardar información sensible.** Los adjuntos no están cifrados. Exporta un respaldo JSON (incluye adjuntos) con regularidad.
-
-## Principio de arquitectura
-Separar: núcleo universal, módulos opcionales, plantillas por sector, configuración por país/idioma/moneda/zona horaria, y planes comerciales del SaaS.
+- `index.html`, `styles.css`, `app.js`: interfaz y persistencia local.
+- `catalog.js`: actividades, países, monedas, roles y permisos.
+- `core.js`: validaciones, operaciones, inventario y migraciones.
+- `pos-core.js`, `pos-ui.js`: motor e interfaz del POS.
+- `automation-core.js`: planificación local de avisos y cola manual (sin envío automático).
+- `tests/`: pruebas automatizadas.

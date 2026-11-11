@@ -64,7 +64,8 @@ function handleReply(db, apptId, reply, now = new Date()) {
 function pickWorker(db, { date, time, serviceId, preferredId = null }, ignoreId = null) {
   const workers = db.users.filter(u => u.active !== false && ['employee', 'manager'].includes(u.role));
   if (!workers.length) return null;
-  const free = workers.filter(w => !C.appointmentConflicts(db, { date, time, serviceId, workerId: w.id }, ignoreId).some(x => x.workerId === w.id));
+  const duration = +(db.services.find(x => x.id === +serviceId) || {}).duration || 30;
+  const free = workers.filter(w => C.workerAvailability(db, w.id, date, time, duration).ok && !C.appointmentConflicts(db, { date, time, serviceId, workerId: w.id }, ignoreId).some(x => x.workerId === w.id));
   if (!free.length) return null;
   if (preferredId && free.some(w => w.id === +preferredId)) return +preferredId;
   const load = w => db.appointments.filter(a => a.workerId === w.id && a.date === date && a.status !== 'Cancelada' && a.id !== ignoreId).length;
@@ -79,7 +80,7 @@ function availability(db, { date, serviceId, workerId = null, open = '08:00', cl
     const t = `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
     const busy = C.appointmentConflicts(db, { date, time: t, serviceId, workerId: workerId || undefined });
     const hasWorkers = db.users.some(u => u.active !== false && ['employee', 'manager'].includes(u.role));
-    if (workerId ? !busy.length : (!hasWorkers ? !busy.length : pickWorker(db, { date, time: t, serviceId }) !== null)) slots.push(t);
+    if (workerId ? (!busy.length && C.workerAvailability(db, workerId, date, t, dur).ok) : (!hasWorkers ? !busy.length : pickWorker(db, { date, time: t, serviceId }) !== null)) slots.push(t);
   }
   return slots;
 }

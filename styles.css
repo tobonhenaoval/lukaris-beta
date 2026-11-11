@@ -56,7 +56,7 @@ a{color:var(--brand);font-weight:600}.btn{white-space:nowrap}
 .cal-head{display:flex;gap:8px;align-items:center;justify-content:space-between;flex-wrap:wrap;margin-bottom:12px}.cal-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:8px}.cal-day{border:1px solid var(--line);border-radius:10px;background:#fff;min-height:150px;padding:8px;display:flex;flex-direction:column;gap:6px}.cal-day.today{border-color:var(--brand);box-shadow:inset 0 3px var(--brand)}.cal-day h4{margin:0;font-size:12px;display:flex;justify-content:space-between;align-items:center;color:var(--muted)}.cal-ev{border:0;text-align:left;background:var(--soft);border-left:3px solid var(--brand);border-radius:6px;padding:5px 7px;font-size:12px;line-height:1.3}.cal-ev[data-st="Cancelada"]{opacity:.5;text-decoration:line-through;border-color:#b42318}.cal-ev[data-st="Pendiente"],.cal-ev[data-st^="Pendiente de"]{border-color:#d9a21b;background:#fff8e8}.cal-ev[data-st="Atendida"]{border-color:#1f9d6b}
 @media(max-width:900px){.cal-grid{grid-template-columns:1fr 1fr}}@media(max-width:600px){.cal-grid{grid-template-columns:1fr}}
 /* LK POS: identidad verde petróleo */
-body.pos-mode{--brand:#0b5d63;--soft:#dcefef;--side-bg:#08393d}
+
 .pos-hero{background:linear-gradient(120deg,#0b5d63,#0f7a80);color:#fff;border:0}.pos-hero .eyebrow,.pos-hero .desc{color:#cfeeee}
 .tables-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:12px}
 .tcard{border:2px solid var(--line);border-radius:14px;background:#fff;padding:14px;text-align:left;display:flex;flex-direction:column;gap:6px;min-height:130px;cursor:pointer}.tcard:hover{box-shadow:0 4px 14px #0001}.tcard b{font-size:20px}.tcard small{color:var(--muted)}
@@ -77,3 +77,100 @@ body.pos-mode{--brand:#0b5d63;--soft:#dcefef;--side-bg:#08393d}
 .split-row{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--line);font-size:13px}.split-row input{width:70px}
 .outbox{font-size:12px}.outbox .msg{color:var(--muted);max-width:420px;white-space:normal}
 .toasts{pointer-events:none}
+
+/* LUKARIS ONE 1.13 · modo oscuro compartido por toda la plataforma */
+body.dark-mode{--bg:#101820;--ink:#e8eef4;--muted:#a4b1bf;--line:#2b3947;--soft:#1c3440;background:var(--bg);color:var(--ink)}
+body.dark-mode .top,body.dark-mode .card,body.dark-mode .stat,body.dark-mode .btn,body.dark-mode .quick button,body.dark-mode .tcard,body.dark-mode .item-btn,body.dark-mode .cal-day,body.dark-mode .modal,body.dark-mode .loginbox,body.dark-mode .field input,body.dark-mode .field select,body.dark-mode .field textarea,body.dark-mode .toolbar input,body.dark-mode .toolbar select,body.dark-mode .qty button{background:#17232e;color:var(--ink);border-color:var(--line)}
+body.dark-mode .top{background:#131e28}body.dark-mode .side{background:var(--side-bg,#101b26)}body.dark-mode .pill{background:#293746;color:#d7e0e9}body.dark-mode .ok{background:#173c32;color:#8be0bd}body.dark-mode .wait{background:#49391c;color:#f4d28a}body.dark-mode .notice{background:#302a1b;color:#f0d69a;border-color:#5a4927}body.dark-mode th,body.dark-mode td{border-color:var(--line)}body.dark-mode .tcard.libre{background:#172b27}body.dark-mode .tcard.ocupada{background:#332322}body.dark-mode .tcard.reservada{background:#332d1d}body.dark-mode .kcol{background:#1b2934}body.dark-mode .kcard{background:#17232e}body.dark-mode .modalback,body.dark-mode .loginback{background:#02070bcc}body.dark-mode .cal-ev{background:#233846;color:var(--ink)}
+.login-tabs{display:flex;gap:8px;margin:12px 0}.login-tabs .chip{flex:1}.loginbox{max-width:460px}.pos-home{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px}.pos-home-tile{border:1px solid var(--line);background:var(--card,#fff);border-radius:15px;padding:18px;text-align:left;min-height:120px}.pos-home-tile strong{display:block;font-size:17px;margin:8px 0 4px}.pos-home-tile span{color:var(--muted);font-size:12px}
+
+/* POS conserva la paleta corporativa; su diferencia está en la distribución y densidad operativa. */
+.pos-shell{background:transparent}.pos-workspace{background:var(--bg);border:1px solid var(--line);border-radius:18px;padding:18px}.pos-welcome{display:grid;grid-template-columns:minmax(230px,.8fr) minmax(0,1.7fr);gap:18px;align-items:stretch}.pos-welcome-copy{padding:24px;border-radius:16px;background:var(--soft);display:flex;flex-direction:column;justify-content:center}.pos-welcome-copy h2{font-size:clamp(23px,3vw,34px);line-height:1.1;margin:12px 0}.pos-welcome-copy p{color:var(--muted);font-size:13px}.pos-home-tile{color:var(--ink);transition:transform .15s,box-shadow .15s}.pos-home-tile:hover{transform:translateY(-2px);box-shadow:0 8px 24px #00000012;border-color:var(--brand)}body.dark-mode .pos-welcome-copy{background:#1b303a}body.dark-mode .pos-home-tile{background:#17232e;color:var(--ink)}@media(max-width:800px){.pos-welcome{grid-template-columns:1fr}.pos-workspace{padding:10px}}
+
+/* LK ONE 1.13.5: resumen equilibrado y control de jornadas */
+.summary-stats{grid-template-columns:repeat(5,minmax(0,1fr));align-items:stretch}
+.summary-stats .stat{min-width:0}
+.daychecks{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:9px;margin:10px 0 16px}
+.daychecks label{display:flex;align-items:center;gap:7px;border:1px solid var(--line);border-radius:8px;padding:9px;font-size:12px}
+@media(max-width:850px){.summary-stats{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(max-width:600px){.summary-stats{grid-template-columns:repeat(2,minmax(0,1fr))}.summary-stats .stat:last-child{grid-column:1/-1}.daychecks{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+/* LK ONE 1.13.6 · interfaz fluida y dashboard configurable */
+:root{scroll-behavior:smooth}
+body{line-height:1.5;-webkit-font-smoothing:antialiased}
+button,.card,.stat,.nav button,.quick button,.metric-card,.activity-item{transition:background-color .18s ease,border-color .18s ease,box-shadow .18s ease,transform .18s ease}
+.btn{border-radius:11px;padding:10px 15px;min-height:40px}
+.btn:hover{transform:translateY(-1px);box-shadow:0 5px 14px #17212b12}
+.card{border-radius:16px;padding:20px;box-shadow:0 2px 10px #17212b05}
+.card:hover{border-color:#d7e1e8}
+.content{padding-top:25px;padding-bottom:40px}
+.heading{align-items:center;margin-bottom:20px}
+.h1{font-size:clamp(24px,2.5vw,30px);letter-spacing:-.8px}
+.sub{font-size:13px;max-width:720px}
+.nav button{padding:11px 13px;border-radius:11px;margin:3px 0;font-size:13px}
+.nav button.active{box-shadow:inset 3px 0 #8ad2bb;background:#ffffff18}
+.field{gap:7px;font-size:12px}
+.field input,.field select,.field textarea,.toolbar input,.toolbar select{min-height:42px;border-radius:10px}
+:focus-visible{outline:3px solid color-mix(in srgb,var(--brand) 45%,transparent);outline-offset:2px}
+.welcome-strip{display:flex;align-items:center;justify-content:space-between;gap:20px;padding:24px 26px;margin-bottom:18px;border:1px solid var(--line);border-radius:18px;background:linear-gradient(115deg,#fff 0%,var(--soft) 100%)}
+.welcome-strip h2{font-size:clamp(21px,2.4vw,29px);letter-spacing:-.7px;margin:7px 0 4px;line-height:1.2}
+.welcome-strip p{margin:0;color:var(--muted);font-size:13px}
+.welcome-actions{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+.dashboard-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(175px,1fr));gap:12px;margin-bottom:16px}
+.metric-card{position:relative;display:flex;flex-direction:column;align-items:flex-start;text-align:left;gap:4px;min-width:0;padding:17px 18px;border:1px solid var(--line);border-radius:15px;background:#fff;color:var(--ink);min-height:135px}
+.metric-card:hover{transform:translateY(-2px);border-color:var(--brand);box-shadow:0 9px 22px #17212b10}
+.metric-icon{display:grid;place-items:center;width:34px;height:34px;border-radius:11px;background:var(--soft);color:var(--brand);font-weight:800;margin-bottom:5px}
+.metric-label{font-size:12px;color:var(--muted);font-weight:650}
+.metric-card strong{font-size:clamp(21px,2vw,27px);letter-spacing:-.6px;line-height:1.25;overflow-wrap:anywhere}
+.metric-card small{font-size:11px;color:var(--muted)}
+.dashboard-lower{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(0,1fr);gap:14px;align-items:start;margin-bottom:14px}
+.dashboard-lower.secondary-lower{grid-template-columns:repeat(2,minmax(0,1fr))}
+.dashboard-card{min-width:0;margin:0;min-height:100%}
+.section-title{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:12px}
+.section-title h3{font-size:15px;margin:0 0 3px}
+.section-title .desc{margin:0}
+.trend-total{font-size:17px;white-space:nowrap}
+.trend-chart{height:145px;display:flex;align-items:flex-end;justify-content:space-around;gap:10px;padding:12px 5px 0;border-bottom:1px solid var(--line);background:repeating-linear-gradient(to bottom,transparent 0,transparent 35px,var(--line) 36px)}
+.trend-col{height:100%;flex:1;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;gap:7px;min-width:0}
+.trend-bar{width:min(34px,70%);min-height:4px;background:linear-gradient(180deg,var(--brand),color-mix(in srgb,var(--brand) 58%,white));border-radius:7px 7px 2px 2px;transition:height .3s ease}
+.trend-col small{font-size:10px;color:var(--muted);padding-bottom:5px}
+.activity-list{display:flex;flex-direction:column}
+.activity-item{display:flex;align-items:center;gap:10px;width:100%;padding:10px 2px;border:0;border-bottom:1px solid var(--line);background:transparent;text-align:left;color:var(--ink)}
+.activity-item:last-child{border-bottom:0}
+.activity-item:hover{background:var(--soft);border-radius:8px;padding-left:8px;padding-right:8px}
+.activity-item>span:nth-child(2){display:flex;flex-direction:column;gap:2px;min-width:0;flex:1}
+.activity-item b{font-size:12px}.activity-item small{font-size:11px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.activity-item time{font-size:10px;color:var(--muted);white-space:nowrap}
+.activity-dot{width:9px;height:9px;flex:0 0 9px;border-radius:50%;background:var(--brand);box-shadow:0 0 0 4px var(--soft)}
+.soft-tag{font-size:10px;padding:5px 8px;background:var(--soft);color:var(--brand);border-radius:20px;white-space:nowrap}
+.empty-state{padding:18px;color:var(--muted);font-size:12px;text-align:center}
+.alert-stack{display:grid;gap:8px}
+.alert-line{padding:11px 12px;border:1px solid var(--line);border-radius:10px;background:var(--soft);color:var(--ink);text-align:left;font-size:12px}
+.alert-line:hover{border-color:var(--brand)}
+.dashboard-options{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:14px}
+.dashboard-options label{display:flex;align-items:center;gap:9px;padding:11px;border:1px solid var(--line);border-radius:10px;font-size:12px;cursor:pointer}
+.dashboard-options label:hover{background:var(--soft);border-color:var(--brand)}
+.dashboard-options input{accent-color:var(--brand);width:16px;height:16px}
+body.dark-mode .welcome-strip{background:linear-gradient(115deg,#17232e,#1b303a)}
+body.dark-mode .metric-card{background:#17232e;color:var(--ink);border-color:var(--line)}
+body.dark-mode .metric-card:hover{border-color:var(--brand)}
+body.dark-mode .activity-item{color:var(--ink)}
+body.dark-mode .dashboard-options label{background:#17232e}
+body.dark-mode .alert-line{background:#1b303a;color:var(--ink)}
+@media(max-width:950px){.dashboard-lower,.dashboard-lower.secondary-lower{grid-template-columns:1fr}}
+@media(max-width:650px){
+ .content{padding:16px 12px 28px}.welcome-strip{display:block;padding:18px;margin-bottom:13px}.welcome-actions{justify-content:flex-start;margin-top:14px}
+ .dashboard-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}.metric-card{padding:13px;min-height:122px}.metric-card strong{font-size:21px}
+ .dashboard-lower{gap:10px}.dashboard-card{padding:15px}.dashboard-options{grid-template-columns:1fr}
+ .heading{gap:10px}.heading .inline-actions{display:flex;gap:6px;flex-wrap:wrap}
+}
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;transition:none!important;animation:none!important}}
+
+/* 1.13.6 · selectores dobles: escribir para filtrar y elegir de una lista visible */
+.choice-field{min-width:0}
+.choice-field>span{display:block}
+.choice-field .choice-search{width:100%;min-height:38px;padding:8px 11px;border:1px solid var(--line);border-radius:10px;background:#fff;color:var(--ink);font-size:12px;font-weight:400}
+.choice-field select{width:100%;min-height:42px}
+.choice-field .choice-search::placeholder{color:#8996a3}
+.choice-field .choice-search:focus-visible,.choice-field select:focus-visible{outline:3px solid color-mix(in srgb,var(--brand) 35%,transparent);outline-offset:2px}
+body.dark-mode .choice-field .choice-search{background:#17232e;color:var(--ink);border-color:var(--line)}

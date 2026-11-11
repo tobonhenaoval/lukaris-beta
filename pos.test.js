@@ -13,9 +13,10 @@ test('SHA-256 propio coincide con crypto y el PIN no se guarda en claro', () => 
   for (const s of ['', 'abc', 'ñandú 😀'.repeat(30), 'a'.repeat(56)]) assert.strictEqual(K.sha256(s), crypto.createHash('sha256').update(s).digest('hex'));
   const salt = K.newSalt(), h = K.hashPin('1234', salt); assert.notStrictEqual(h, K.hashPin('1235', salt)); assert.ok(!h.includes('1234')); assert.strictEqual(h, K.hashPin('1234', salt));
 });
-test('actividades: LK POS solo se recomienda en gastronomía; buscador de países y monedas', () => {
+test('actividades: LK POS se recomienda en gastronomía y comercio minorista; buscador de países y monedas', () => {
   const food = K.ACTIVITIES.filter(a => a.sector === 'food'); assert.ok(food.length >= 15); assert.ok(food.every(a => a.modules.includes('pos')));
-  for (const id of ['barbershop', 'clothing', 'realestate', 'hardware', 'clinic']) assert.ok(!K.findActivity(id).modules.includes('pos'), id);
+  for (const id of ['realestate', 'clinic']) assert.ok(!K.findActivity(id).modules.includes('pos'), id);
+  for (const id of ['barbershop', 'clothing', 'hardware', 'grocery', 'convenience_store', 'supermarket']) assert.ok(K.findActivity(id).modules.includes('pos'), id);
   assert.strictEqual(K.findActivity('gastrobar').sector, 'food'); assert.strictEqual(K.findActivity('Heladería').id, 'icecream');
   assert.strictEqual(K.findCountry('colombia')[2], 'COP'); assert.ok(K.CURRENCIES.length >= 40);
   const db = C.defaultDb(); const r = C.validate('profile', { name: 'X', activity: 'Pizzería', country: 'México', currency: 'MXN', language: 'es', timezone: 'America/Mexico_City', accountMode: 'both' }, db);
@@ -116,13 +117,13 @@ test('roles y permisos', () => {
   assert.ok(can('admin', 'users.manage') && !can('manager', 'users.manage')); assert.ok(can('manager', 'pos.refund') && !can('cashier', 'pos.refund') && !can('waiter', 'pos.refund'));
   assert.ok(can('cashier', 'pos.pay') && can('cashier', 'pos.shift') && !can('cashier', 'pos.discount')); assert.ok(can('waiter', 'pos.orders') && !can('waiter', 'pos.pay') && !can('waiter', 'pos.shift'));
   assert.ok(can('kitchen', 'pos.kitchen') && !can('kitchen', 'pos.orders') && !can('kitchen', 'page.clients')); assert.ok(!can('employee', 'page.pos') && !can('employee', 'inventory.edit') && !can('waiter', 'page.cash'));
-  const db = C.defaultDb(); const mk = (n, role, pin, e) => { const v = C.validate('user', { name: n, role, pin, active: 'yes' }, db, { editId: e }); assert.ok(v.ok, JSON.stringify(v.errors)); return C.commit(db, 'user', v.value, e); };
+  const db = C.defaultDb(); const mk = (n, role, pin, e) => { const v = C.validate('user', { name: n, role, pin, email: role === 'admin' ? `${n.toLowerCase()}@demo.local` : '', password: role === 'admin' ? 'ClaveDemo123' : '', active: 'yes' }, db, { editId: e }); assert.ok(v.ok, JSON.stringify(v.errors)); return C.commit(db, 'user', v.value, e); };
   const a = mk('Dueño', 'admin', '1234'); const u = db.users[0]; assert.ok(u.pinHash && !JSON.stringify(u).includes('"1234"')); assert.ok(C.validate('user', { name: 'dueño', role: 'admin', pin: '12' }, db).errors.pin && C.validate('user', { name: 'dueño', role: 'admin', pin: '5678' }, db).errors.name);
   assert.match(C.commit(db, 'user', { name: 'Dueño', role: 'waiter', active: true, pin: '' }, a.id).error, /administrador/); assert.match(C.remove(db, 'user', a.id).error, /administrador/);
 });
 test('migración desde 1.11: añade LK POS, usuarios e integraciones sin perder datos', () => {
   const old = JSON.parse(JSON.stringify(require('fs').readFileSync(__dirname + '/../tests/fixture-1.11.json', 'utf8') ? JSON.parse(require('fs').readFileSync(__dirname + '/../tests/fixture-1.11.json', 'utf8')) : {}));
-  const db = C.migrate(old); assert.strictEqual(db.meta.schemaVersion, 5); assert.ok(db.pos && Array.isArray(db.pos.orders) && db.users && db.outbox && db.integrations.whatsapp.status === 'No conectado'); assert.strictEqual(db.clients.length, old.clients.length); assert.strictEqual(db.profile.activity, 'barbershop'); assert.ok(db.meta.nextId > 50);
+  const db = C.migrate(old); assert.strictEqual(db.meta.schemaVersion, 9); assert.ok(db.pos && Array.isArray(db.pos.orders) && db.users && db.outbox && db.integrations.whatsapp.status === 'No conectado'); assert.strictEqual(db.clients.length, old.clients.length); assert.strictEqual(db.profile.activity, 'barbershop'); assert.ok(db.meta.nextId > 50);
   assert.ok(db.profile.modules.includes('automations'));
 });
 test('automatización: recordatorios idempotentes, liberación a 30 min solo tras envío real, asignación equilibrada', () => {
@@ -137,4 +138,17 @@ test('automatización: recordatorios idempotentes, liberación a 30 min solo tra
   const d = '2030-07-01'; const picks = []; for (let i = 0; i < 4; i++) { const w = A.pickWorker(db, { date: d, time: `${9 + i}:00`.padStart(5, '0'), serviceId: 1 }); picks.push(w); db.appointments.push({ id: C.nextId(db), clientId: 1, serviceId: 1, date: d, time: `${9 + i}:00`.padStart(5, '0'), status: 'Confirmada', price: 1, workerId: w }); }
   assert.deepStrictEqual(picks, [801, 802, 801, 802], 'equilibra por día'); assert.strictEqual(A.pickWorker(db, { date: d, time: '09:00', serviceId: 1, preferredId: 802 }), 802, 'respeta preferencia si está libre'); assert.strictEqual(A.pickWorker(db, { date: d, time: '09:00', serviceId: 1, preferredId: 801 }), 802, 'preferido ocupado → otro');
   assert.strictEqual(A.handleReply(db, ap.id, '1').ok, true); assert.strictEqual(ap.status, 'Confirmada'); assert.strictEqual(A.handleReply(db, ap.id, '3').ok, true); assert.strictEqual(ap.status, 'Cancelada'); assert.ok(!A.handleReply(db, ap.id, 'hola').ok);
+});
+
+
+test('1.13.5: asignación automática excluye empleados fuera de jornada, en pausa o vacaciones', () => {
+  const db = C.defaultDb();
+  db.users.push({ id: 901, name: 'Ana', role: 'employee', active: true, schedule: { days: [1,2,3,4,5], start: '09:00', end: '18:00', breakStart: '13:00', breakEnd: '14:00' }, vacations: [] });
+  db.users.push({ id: 902, name: 'Luis', role: 'employee', active: true, schedule: { days: [1,2,3,4,5], start: '09:00', end: '18:00', breakStart: '13:00', breakEnd: '14:00' }, vacations: [] });
+  const date = '2030-07-01';
+  assert.equal(A.pickWorker(db, { date, time: '13:15', serviceId: 1 }), null, 'nadie puede recibir cita en la pausa');
+  db.users.find(u => u.id === 901).vacations.push({ start: date, end: date });
+  assert.equal(A.pickWorker(db, { date, time: '10:00', serviceId: 1 }), 902, 'se elige al compañero disponible');
+  db.workforce.businessDaysOff.push({ start: date, end: date });
+  assert.equal(A.pickWorker(db, { date, time: '10:00', serviceId: 1 }), null, 'el cierre de empresa bloquea la agenda');
 });

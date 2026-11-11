@@ -12,11 +12,11 @@ const PAGE_MODULE = { appointments: 'agenda', clients: 'crm', commercial: 'sales
 
 // ---------- actividades: [id, etiqueta, sector (profile.type), módulos recomendados] ----------
 const M = {
-  appt: ['crm', 'agenda', 'services', 'cash', 'inventory', 'team', 'marketing', 'automations', 'reports'],
-  prof: ['crm', 'agenda', 'services', 'sales', 'cash', 'inventory', 'operations', 'automations', 'reports'],
+  appt: ['crm', 'agenda', 'services', 'pos', 'cash', 'inventory', 'team', 'marketing', 'automations', 'reports'],
+  prof: ['crm', 'agenda', 'services', 'pos', 'sales', 'cash', 'inventory', 'operations', 'automations', 'reports'],
   gastro: ['crm', 'pos', 'sales', 'cash', 'inventory', 'team', 'marketing', 'reports'],
   gastroRes: ['crm', 'pos', 'agenda', 'sales', 'cash', 'inventory', 'team', 'marketing', 'reports'],
-  retail: ['crm', 'sales', 'cash', 'inventory', 'services', 'marketing', 'automations', 'reports'],
+  retail: ['crm', 'pos', 'sales', 'cash', 'inventory', 'services', 'marketing', 'automations', 'reports'],
   ecom: ['crm', 'sales', 'cash', 'inventory', 'marketing', 'automations', 'reports'],
   tech: ['crm', 'agenda', 'sales', 'services', 'cash', 'inventory', 'operations', 'team', 'reports'],
   build: ['crm', 'sales', 'cash', 'inventory', 'operations', 'team', 'reports'],
@@ -35,7 +35,7 @@ const ACTIVITIES = [
   // gastronomía (LK POS)
   ['restaurant', 'Restaurante', 'food', M.gastroRes], ['gastrobar', 'Gastrobar', 'food', M.gastroRes], ['bar', 'Bar y discoteca', 'food', M.gastro], ['cafe', 'Cafetería', 'food', M.gastro], ['bakery', 'Panadería y pastelería', 'food', M.gastro], ['fastfood', 'Comidas rápidas', 'food', M.gastro], ['pizzeria', 'Pizzería', 'food', M.gastro], ['burger', 'Hamburguesería', 'food', M.gastro], ['icecream', 'Heladería', 'food', M.gastro], ['smoothies', 'Granizados y bebidas', 'food', M.gastro], ['juicebar', 'Juguería', 'food', M.gastro], ['foodtruck', 'Food truck', 'food', M.gastro], ['catering', 'Catering y eventos', 'food', M.gastro], ['delivery', 'Negocio de domicilios', 'food', M.gastro], ['foodother', 'Otro establecimiento gastronómico', 'food', M.gastro],
   // comercio
-  ['clothing', 'Tienda de ropa y moda', 'retail', M.retail], ['minimarket', 'Minimercado', 'retail', M.retail], ['supermarket', 'Supermercado', 'retail', M.retail], ['electronics', 'Electrónica y tecnología', 'retail', M.retail], ['retail_general', 'Comercio minorista', 'retail', M.retail], ['wholesale', 'Comercio mayorista', 'retail', M.retail], ['ecommerce', 'Ecommerce', 'retail', M.ecom], ['hardware', 'Ferretería', 'retail', M.retail], ['homedecor', 'Hogar y decoración', 'retail', M.retail], ['pharmacy', 'Droguería y farmacia', 'retail', M.retail], ['pets', 'Mascotas y veterinaria', 'retail', M.appt],
+  ['clothing', 'Tienda de ropa y moda', 'retail', M.retail], ['minimarket', 'Minimercado', 'retail', M.retail], ['grocery', 'Abarrotes y tienda de barrio', 'retail', M.retail], ['convenience_store', 'Tienda de conveniencia', 'retail', M.retail], ['supermarket', 'Supermercado', 'retail', M.retail], ['butcher', 'Carnicería y charcutería', 'retail', M.retail], ['stationery', 'Papelería y librería', 'retail', M.retail], ['florist', 'Floristería', 'retail', M.retail], ['electronics', 'Electrónica y tecnología', 'retail', M.retail], ['retail_general', 'Comercio minorista', 'retail', M.retail], ['wholesale', 'Comercio mayorista', 'retail', M.retail], ['ecommerce', 'Ecommerce', 'retail', M.ecom], ['hardware', 'Ferretería', 'retail', M.retail], ['homedecor', 'Hogar y decoración', 'retail', M.retail], ['pharmacy', 'Droguería y farmacia', 'retail', M.retail], ['pets', 'Mascotas y veterinaria', 'retail', M.appt],
   // servicios
   ['professional_services', 'Servicios profesionales', 'services', M.prof], ['legal', 'Abogados y asesoría legal', 'services', M.prof], ['accounting', 'Contabilidad y consultoría', 'services', M.prof], ['realestate', 'Inmobiliaria', 'services', M.real], ['workshop', 'Taller y servicio técnico', 'automotive', M.tech], ['carwash', 'Lavado y mantenimiento de vehículos', 'automotive', M.tech], ['construction', 'Construcción e instalaciones', 'construction', M.build], ['logistics', 'Logística y transporte', 'logistics', M.log], ['cleaning', 'Aseo y mantenimiento', 'services', M.prof],
   // salud, educación, turismo, digital, agro

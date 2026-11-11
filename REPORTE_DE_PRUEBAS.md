@@ -1,30 +1,20 @@
-# LK ONE 1.12 · Reporte de pruebas
+# LK ONE 1.13.6 · Reporte de pruebas
 
-**Fecha:** 2026-11-10 · **Entorno:** Node (sin dependencias) + Chromium real vía Playwright · **Comando:** `npm test`
-**Resultado final: 53 pruebas, 53 aprobadas, 0 fallidas, 0 omitidas.**
+**Fecha:** 2026-11-11 · **Comando:** `npm test` · **Entorno:** Node 18+.
 
-| Suite | Pruebas | Qué cubre |
-|---|---|---|
-| `core.test.js` | lógica general | validaciones, ventas, abonos, inventario, migración, CSV, respaldos |
-| `pos.test.js` | 15 | SHA-256/PIN, actividades, mesas, pedidos, cocina, totales, pagos, dividir/mover/unir, caja, anulaciones, reportes, domicilio, roles, migración 1.11→1.12, automatización |
-| `server.test.js` | API | revisión/409, escritura atómica, adjuntos, orígenes |
-| `project.test.js` | proyecto | coherencia de versión, sin `on*=` inline, archivos |
-| `e2e.test.js` | navegador | flujo completo con persistencia, dos pestañas, `file://`, barrido de todos los botones de todas las pantallas |
-| `e2e-pos.test.js` | 4 | multisector/calendario, flujo POS completo y recarga, roles/PIN, móvil sin desbordamiento |
+**Resultado:** 60 pruebas totales · 51 aprobadas · 0 fallidas · 9 omitidas.
 
-## Escenarios obligatorios del documento maestro
-Cubiertos por las pruebas anteriores: cambio de actividad sin perder datos, módulos ocultos por actividad, país/moneda/formatos, mesa → pedido → cocina → cobro, inventario descontado una vez, pago parcial y mixto, división de cuenta, cierre de caja con diferencia, cancelación con motivo, reembolso, roles y permisos, PIN, persistencia tras recarga, sincronización entre pestañas, citas con choque y reprogramación, recordatorios idempotentes, liberación solo tras envío real, migración desde 1.11, vista móvil.
+Las nueve pruebas omitidas requieren Playwright para ejecutar flujos reales en navegador. No se declara aprobada la prueba visual ni la navegación end-to-end en esta ejecución.
 
-## Errores encontrados y corregidos
-1. Indicador «Guardado» mostrado antes de terminar el sync (condición de carrera, ya existía en 1.11).
-2. Avisos emergentes que interceptaban clics.
-3. Pedido abierto visible tras cambiar de usuario.
-4. Actividad mal derivada al migrar perfiles antiguos.
-5. Turnos liberados seguían bloqueando la agenda.
-6. Barrido de botones agotaba el tiempo: los botones de WhatsApp abren wa.me y el entorno no tiene red; la prueba ahora bloquea red externa y cierra pestañas externas (10 s en lugar de >180 s).
+## Cobertura verificada en 1.13.6
+- Sintaxis JavaScript de todos los módulos.
+- Coherencia de versión entre core, paquete, documentación e interfaz.
+- Selectores compartidos: búsqueda escrita para filtrar opciones y desplegable visible para elegirlas, aplicados a la interfaz general y a LK POS.
+- Presencia del Dashboard configurable en Resumen, con métricas, actividad, próximas citas y alertas.
+- Migraciones y pruebas de lógica de negocio, clientes por documento, personal, jornadas, citas, inventario, ventas, POS, permisos, servidor y respaldos.
 
-## No probado / limitaciones de la verificación
-- Solo Chromium; no se probó Safari/Firefox ni dispositivos físicos.
-- Sin WhatsApp real, impresoras, pasarelas de pago ni fiscalidad (no existen en esta versión).
-- Multipantalla (cocina en otro dispositivo) funciona por sondeo cada 6 s, probado con dos pestañas, no en red.
-- Sin pruebas de carga ni seguridad de servidor (no hay autenticación de servidor).
+## Límites de verificación
+- No se ejecutaron pruebas reales de navegador por ausencia de Playwright.
+- No se declara verificado visualmente cada tamaño de pantalla.
+- No se conectó WhatsApp Business API: los mensajes se generan en la bandeja interna y WhatsApp se abre con texto preparado; la persona debe confirmar el envío.
+- La beta local no sincroniza entre dispositivos y no ejecuta tareas con la aplicación cerrada.

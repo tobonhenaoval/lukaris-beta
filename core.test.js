@@ -3,10 +3,10 @@ const C = require('../core.js');
 const fresh = () => C.defaultDb();
 const ok = (db, type, raw, editId) => { const v = C.validate(type, raw, db, { editId }); assert.ok(v.ok, JSON.stringify(v.errors)); const r = C.commit(db, type, v.value, editId); assert.ok(r.ok, r.error); return r; };
 
-test('migrar datos de 1.05 / 0.4 sin perder nada y fijar esquema 5', () => {
+test('migrar datos de 1.05 / 0.4 sin perder nada y fijar esquema 8', () => {
   const legacy = { profile: { name: 'Viejo', currency: 'USD' }, clients: [{ id: 7, name: 'A', phone: '1' }], services: [], appointments: [{ id: 3, clientId: 7, serviceId: 1, date: '2026-01-01', time: '09:00' }], payments: [], products: [], orders: [] };
   const db = C.migrate(legacy);
-  assert.strictEqual(db.meta.schemaVersion, 5); assert.strictEqual(db.profile.name, 'Viejo'); assert.strictEqual(db.clients[0].id, 7);
+  assert.strictEqual(db.meta.schemaVersion, 9); assert.strictEqual(db.profile.name, 'Viejo'); assert.strictEqual(db.clients[0].id, 7);
   assert.deepStrictEqual(db.attachments, []); assert.strictEqual(db.appointments[0].status, 'Pendiente'); assert.ok(db.meta.nextId > 7);
   assert.strictEqual(legacy.profile.language, undefined, 'no muta la entrada');
   assert.ok(C.migrate(null).organizationUnits.length === 1);
@@ -113,4 +113,58 @@ test('perfil: zona horaria inválida se rechaza', () => {
 test('resumen: citas de hoy, próximas y por cobrar', () => {
   const db = fresh(); ok(db, 'sale', { clientId: 1, description: 'x', total: 100, paid: 10, date: C.today(), method: 'Efectivo', productId: '' });
   const s = C.summary(db); assert.strictEqual(s.todayApps, 1); assert.strictEqual(s.outstanding, 90); assert.strictEqual(s.upcoming.length, 1);
+});
+
+test('1.13: credenciales locales de administrador y modalidad POS exclusiva', () => {
+  const db = fresh();
+  const v = C.validate('user', { name: 'Admin local', role: 'admin', email: 'admin@demo.local', password: 'ClaveSegura123', pin: '', active: 'yes' }, db);
+  assert.ok(v.ok, JSON.stringify(v.errors));
+  assert.ok(C.commit(db, 'user', v.value).ok);
+  const u = db.users[0];
+  assert.ok(u.passwordHash && u.passwordSalt && !JSON.stringify(u).includes('ClaveSegura123'));
+  assert.strictEqual(u.email, 'admin@demo.local');
+  assert.ok(C.validate('profile', { name: 'Demo', activity: 'barbershop', country: 'Colombia', currency: 'COP', language: 'es', timezone: 'America/Bogota', accountMode: 'single', productMode: 'pos' }, db).ok);
+  assert.ok(C.validate('user', { name: 'Sin contraseña', role: 'admin', email: 'x@demo.local', password: '123', pin: '', active: 'yes' }, db).errors.password);
+});
+
+
+test('1.13.5: cliente identificado por cédula, sin exigir celular ni correo, y sin duplicados', () => {
+  const db = fresh();
+  const data = { name: 'Cliente por cédula', documentType: 'CC', documentNumber: '1.234.567.890', phone: '', email: '', notes: '' };
+  const v = C.validate('client', data, db); assert.ok(v.ok, JSON.stringify(v.errors));
+  const saved = C.commit(db, 'client', v.value); assert.ok(saved.ok);
+  assert.strictEqual(db.clients.at(-1).documentNumber, '1.234.567.890');
+  const duplicate = C.validate('client', { ...data, name: 'Duplicado', documentNumber: '1234567890' }, db);
+  assert.match(duplicate.errors.documentNumber, /Ya existe/);
+  const missingId = C.validate('client', { name: 'Sin contacto', documentType: 'CC', documentNumber: '', phone: '', email: '', notes: '' }, db);
+  assert.ok(missingId.errors.phone);
+  const update = C.validate('client', { ...data, documentNumber: '1.234.567.890' }, db, { editId: saved.id }); assert.ok(update.ok);
+});
+
+
+test('1.13.5: horario laboral, pausas, vacaciones y cierre de empresa bloquean disponibilidad', () => {
+  const db = fresh();
+  const v = C.validate('user', { name: 'Laura', lastName: 'Pérez', phone: '3001234567', station: 'Cocina', role: 'employee', active: 'yes' }, db);
+  assert.ok(v.ok, JSON.stringify(v.errors)); const created = C.commit(db, 'user', v.value); const u = db.users.find(x => x.id === created.id);
+  u.schedule = { days: [1,2,3,4,5], start: '09:00', end: '18:00', breakStart: '13:00', breakEnd: '14:00', break2Start: '16:00', break2End: '16:15' };
+  const monday = '2026-11-16';
+  assert.ok(C.workerAvailability(db, u.id, monday, '10:00', 30).ok);
+  assert.match(C.workerAvailability(db, u.id, monday, '13:00', 30).reason, /descanso/);
+  assert.match(C.workerAvailability(db, u.id, monday, '16:05', 10).reason, /descanso/);
+  assert.match(C.workerAvailability(db, u.id, '2026-11-15', '10:00', 30).reason, /no trabaja/);
+  assert.ok(C.addTimeOff(db, u.id, monday, monday, 'Vacaciones').ok);
+  assert.match(C.workerAvailability(db, u.id, monday, '10:00', 30).reason, /vacaciones/);
+  assert.ok(C.addTimeOff(db, 'business', '2026-11-17', '2026-11-17', 'Cierre anual').ok);
+  assert.match(C.workerAvailability(db, u.id, '2026-11-17', '10:00', 30).reason, /negocio está cerrado/);
+  assert.equal(u.lastName, 'Pérez'); assert.equal(u.phone, '3001234567');
+});
+
+
+test('1.13.6: dashboard configurable se migra y conserva preferencias por perfil', () => {
+  const db = C.defaultDb();
+  assert.strictEqual(db.meta.schemaVersion, 9);
+  assert.ok(Array.isArray(db.profile.dashboard.widgets));
+  const old = C.migrate({ profile: { name: 'Negocio anterior' }, users: [{ id: 4, name: 'Ana', role: 'employee' }] });
+  assert.ok(Array.isArray(old.profile.dashboard.widgets));
+  assert.deepStrictEqual(old.users[0].preferences, {});
 });

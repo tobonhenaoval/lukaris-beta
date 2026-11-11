@@ -9,7 +9,7 @@ JavaScript puro, sin dependencias, Node ≥18 para el backend local. No se migr�
 - `server.js`: API `GET/PUT /api/db` con `baseRev` (409 en conflicto), escritura atómica, 14 copias diarias, adjuntos, solo 127.0.0.1.
 
 ## Datos
-Un documento `db` (esquema 5) con migración desde esquemas anteriores. Ids por `meta.nextId`. Espejo en `localStorage` (`lukaris-beta-v02`) e IndexedDB para adjuntos sin servidor. Sondeo `Store.pull()` cada 6 s en la pantalla POS.
+Un documento `db` (esquema 7) con migración desde esquemas anteriores. Ids por `meta.nextId`. Espejo en `localStorage` (`lukaris-beta-v02`) e IndexedDB para adjuntos sin servidor. Sondeo `Store.pull()` cada 6 s en la pantalla POS.
 
 ## Reglas clave del POS
 Stock descontado una vez por línea al enviar a cocina (`stockDone`); venta y pagos creados al cerrar; reembolso crea pagos negativos y anula la venta; impuesto y propina fijados por pedido; un turno de caja abierto; permisos verificados en `pos-core` mediante `actor`.

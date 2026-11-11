@@ -90,7 +90,7 @@ function validate(type, raw, db, ctx = {}) {
     case 'pos-settings': {
       v.num('taxRate', { min: 0, max: 100 }); value.taxIncluded = raw.taxIncluded === 'yes'; v.num('tipPercent', { min: 0, max: 100 }); value.allowNegativeStock = raw.allowNegativeStock === 'yes';
       const ex = String(raw.extraMethods ?? '').split(',').map(s => s.trim()).filter(Boolean); if (ex.some(x => x.length > 30) || ex.length > 8) errors.extraMethods = 'Hasta 8 medios, 30 caracteres cada uno.';
-      if (ex.some(x => BASE_METHODS.some(b => b.toLowerCase() === x.toLowerCase()))) errors.extraMethods = 'No repitas los medios básicos.'; value.extraMethods = [...new Set(ex)]; break;
+      if (ex.some(x => BASE_METHODS.some(b => b.toLowerCase() === x.toLowerCase()))) errors.extraMethods = 'No repitas los medios básicos.'; value.extraMethods = [...new Set(ex)]; value.notifyPhone = String(raw.notifyPhone || '').replace(/[^0-9+]/g, '').slice(0, 20); value.notifyChannel = ['app','whatsapp','both'].includes(raw.notifyChannel) ? raw.notifyChannel : 'both'; value.notifyAudience = ['assigned','team','single'].includes(raw.notifyAudience) ? raw.notifyAudience : 'assigned'; value.notifySingleUserId = raw.notifySingleUserId ? +raw.notifySingleUserId : ''; if (value.notifyAudience === 'single' && !db.users.some(u => u.id === value.notifySingleUserId && u.active !== false && u.role !== 'admin')) errors.notifySingleUserId = 'Selecciona una persona activa del equipo.'; break;
     }
     case 'pos-waste': {
       const p = db.products.find(x => x.id === Number(raw.productId)); if (!p) errors.productId = 'Selecciona un producto.'; value.productId = p ? p.id : null;
@@ -381,7 +381,7 @@ function inventoryAlerts(db) {
   const used = new Set(db.pos.menu.flatMap(m => (m.recipe || []).map(r => r.productId)));
   return db.products.filter(p => used.has(p.id) && p.stock <= (p.minStock > 0 ? p.minStock : 3)).map(p => ({ id: p.id, name: p.name, stock: p.stock, unit: p.unit || 'und', min: p.minStock > 0 ? p.minStock : 3 }));
 }
-function saveSettings(db, v, actor) { const d = need(actor, 'pos.settings'); if (d) return d; Object.assign(db.pos.settings, { taxRate: v.taxRate, taxIncluded: v.taxIncluded, tipPercent: v.tipPercent, allowNegativeStock: v.allowNegativeStock, extraMethods: v.extraMethods }); return { ok: true }; }
+function saveSettings(db, v, actor) { const d = need(actor, 'pos.settings'); if (d) return d; Object.assign(db.pos.settings, { taxRate: v.taxRate, taxIncluded: v.taxIncluded, tipPercent: v.tipPercent, allowNegativeStock: v.allowNegativeStock, extraMethods: v.extraMethods, notifyPhone: v.notifyPhone || '', notifyChannel: v.notifyChannel || 'both', notifyAudience: v.notifyAudience || 'assigned', notifySingleUserId: v.notifySingleUserId || '' }); return { ok: true }; }
 
 // ---------- menú de ejemplo (solo cuando el usuario lo pide) ----------
 function seedExample(db, actor) {

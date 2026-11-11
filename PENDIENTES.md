@@ -1,17 +1,25 @@
-# LK ONE 1.12 · Pendientes
+# LK ONE 1.13.6 · Pendientes y límites transparentes
 
-## Requieren credenciales o infraestructura
-- **WhatsApp real**: cuenta WhatsApp Business verificada, Phone Number ID, token permanente guardado en servidor, plantillas aprobadas por Meta, HTTPS público con webhook y un cron que ejecute `planReminders`/`releaseUnconfirmed`. La lógica y la cola están listas; falta el proveedor.
-- **Autenticación de servidor y multiempresa**: sesiones, hash de contraseñas en servidor, base de datos (p. ej. PostgreSQL) con aislamiento por empresa. El PIN actual es solo local.
-- **Facturación fiscal por país**: requiere reglas y proveedor de cada autoridad tributaria.
-- **Pagos en línea / datáfonos**: pasarela y credenciales.
+## Funciones que requieren infraestructura o proveedor
+- WhatsApp automático: proveedor oficial, credenciales, webhooks y tareas programadas.
+- Autenticación segura: backend, sesiones seguras, recuperación de contraseña, hash robusto en servidor y aislamiento por empresa.
+- Sincronización entre dispositivos, usuarios simultáneos y sucursales con datos aislados.
+- Tasas oficiales en vivo: proveedor/fuente oficial por país, fecha de consulta y política de actualización.
+- Facturación electrónica fiscal: integración con autoridad tributaria/proveedor autorizado de cada país.
+- Pagos en línea, datáfonos y conciliación con proveedores de pago.
+- Alertas y automatizaciones que funcionen con la aplicación cerrada.
+- Asistencia fiable y automática en segundo plano, incluyendo ausencias, tolerancias y correcciones auditables.
+- Motor de turnos avanzado: jornadas rotativas, múltiples pausas, horas extra, festivos por país, reglas de convenio y aprobaciones.
 
-## Funcionalidad por construir
-- Cocina en tiempo real entre dispositivos (WebSocket/SSE) en lugar de sondeo de 6 s.
-- Sincronización por documentos o registros (hoy se sincroniza la base completa con control de revisión).
-- Varias cajas simultáneas (hoy un turno abierto a la vez).
-- Venta general con varias líneas (productos/servicios) fuera del POS.
-- Impresión de comandas y tickets, lector de código de barras.
-- Reservas de mesa, programa de lealtad y propinas repartidas por mesero.
-- Plantillas de menú por tipo de local y recetas con costeo avanzado.
-- Pruebas en más navegadores y dispositivos.
+## Siguientes desarrollos funcionales
+- POS especializado completo por vertical: barbería (sillas, barberos, servicios y turnos), restaurantes (mesas, cocina y comandas), retail (lector de códigos, caja rápida y devoluciones), spa (cabinas y tratamientos).
+- Temporizadores de servicio/pedido configurables y métricas históricas.
+- Inventario asignado por empleado, solicitudes de reposición y aprobación.
+- Lista de espera, asignación/reasignación automática de citas y reglas de confirmación verificables.
+- Número de WhatsApp operativo configurable y notificaciones por etapas; envío real solo tras integrar proveedor.
+- Mensajería automática real a clientes y equipos; esta beta solo genera avisos internos y abre WhatsApp manualmente.
+- Exportación PDF/CSV ampliada para cierres, facturación e informes.
+- Modalidades comerciales de licencia completa y POS independiente con control de suscripción.
+
+## Reglas de seguridad
+La modalidad sin backend es solo local y demostrativa. Los PIN y contraseñas se almacenan como hashes con sal en datos locales, pero cualquier persona con acceso al navegador o archivo puede manipularlos. No usar para información sensible ni despliegue público.

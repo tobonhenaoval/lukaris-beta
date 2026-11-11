@@ -7,7 +7,7 @@
 })(typeof self !== 'undefined' ? self : globalThis, function () {
 
 const Cat = typeof module === 'object' && module.exports ? require('./catalog.js') : globalThis.LKCatalog;
-const APP_VERSION = '1.12', SCHEMA_VERSION = 5, KEY = 'lukaris-beta-v02';
+const APP_VERSION = '1.13.6', SCHEMA_VERSION = 9, KEY = 'lukaris-beta-v02';
 const MAX_FILE_BYTES = 10 * 1024 * 1024;
 const FILE_EXT = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'pdf', 'doc', 'docx', 'xls', 'xlsx', 'csv', 'txt', 'ppt', 'pptx', 'odt', 'ods'];
 const APPT_STATUS = ['Confirmada', 'Pendiente', 'Atendida', 'Cancelada', 'Pendiente de reprogramación'];
@@ -53,10 +53,10 @@ const activeSales = db => db.sales.filter(s => !s.voided);
 // ---------- datos iniciales y migración ----------
 function defaultProfile() {
   let tz = 'UTC'; try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'; } catch (e) {}
-  return { name: 'Mi negocio', type: 'services', activity: 'professional_services', currency: 'COP', country: '', language: 'es', timezone: tz, dateFormat: 'auto', timeFormat: '24h', logo: '', accountMode: 'both', onboarded: false, modules: [], appearance: { theme: 'emerald', font: 'system', scale: 'normal', radius: 'normal' } };
+  return { name: 'Mi negocio', type: 'services', activity: 'professional_services', currency: 'COP', country: '', language: 'es', timezone: tz, dateFormat: 'auto', timeFormat: '24h', logo: '', accountMode: 'both', productMode: 'suite', onboarded: false, modules: [], appearance: { theme: 'emerald', font: 'system', scale: 'normal', radius: 'normal' } };
 }
 function defaultPos() {
-  return { settings: { taxRate: 0, taxIncluded: false, tipPercent: 10, allowNegativeStock: false, extraMethods: [], stations: ['Cocina', 'Bebidas', 'Postres', 'Barra'] }, counters: { order: 0, shift: 0 }, tables: [], categories: [], menu: [], orders: [], shifts: [], waste: [], notifications: [] };
+  return { settings: { taxRate: 0, taxIncluded: false, tipPercent: 10, allowNegativeStock: false, extraMethods: [], stations: ['Cocina', 'Bebidas', 'Postres', 'Barra'], notifyPhone: '', notifyChannel: 'both', notifyAudience: 'assigned', notifySingleUserId: '' }, counters: { order: 0, shift: 0 }, tables: [], categories: [], menu: [], orders: [], shifts: [], waste: [], notifications: [] };
 }
 const recommendedModules = profile => { const a = Cat.findActivity(profile && profile.activity); return a ? a.modules.slice() : (Cat.findActivity(Cat.SECTOR_DEFAULT_ACTIVITY[profile && profile.type]) || Cat.findActivity('other')).modules.slice(); };
 function defaultDb() {
@@ -71,7 +71,7 @@ function defaultDb() {
     orders: [{ id: 1, clientId: 2, vehicle: 'Pedido #1001', detail: 'Preparación y entrega de pedido', date: d, status: 'En proceso', amount: 85000 }]
   });
 }
-/* Normaliza cualquier versión anterior (0.4, 1.05) al esquema 4. Devuelve una copia nueva. */
+/* Normaliza cualquier versión anterior (0.4, 1.05) al esquema 7. Devuelve una copia nueva. */
 function migrate(raw) {
   const db = isObj(raw) ? clone(raw) : {};
   db.meta = isObj(db.meta) ? db.meta : {};
@@ -81,18 +81,25 @@ function migrate(raw) {
   if (!Cat.findActivity(db.profile.activity)) db.profile.activity = Cat.SECTOR_DEFAULT_ACTIVITY[db.profile.type] || 'other';
   if (db.profile.modulesSet && !db.profile.modules.includes('automations') && !db.meta.modAutoMigrated) { db.profile.modules.push('automations'); db.meta.modAutoMigrated = true; }
   db.pos = isObj(db.pos) ? db.pos : {}; { const d = defaultPos(); db.pos.settings = { ...d.settings, ...(isObj(db.pos.settings) ? db.pos.settings : {}) }; db.pos.counters = { ...d.counters, ...(isObj(db.pos.counters) ? db.pos.counters : {}) }; for (const k of ['tables', 'categories', 'menu', 'orders', 'shifts', 'waste', 'notifications']) if (!Array.isArray(db.pos[k])) db.pos[k] = []; }
+  db.workforce = { businessDaysOff: [], ...(isObj(db.workforce) ? db.workforce : {}) };
+  if (!Array.isArray(db.workforce.businessDaysOff)) db.workforce.businessDaysOff = [];
   db.auth = { enabled: false, ...(isObj(db.auth) ? db.auth : {}) };
+  db.profile.appearance = { mode: 'light', ...(db.profile.appearance || {}) };
+  db.profile.dashboard = { widgets: ['income','appointments','clients','sales','outstanding','inventory','orders','activity','trend'], density: 'comfortable', ...(isObj(db.profile.dashboard) ? db.profile.dashboard : {}) };
+  if (!Array.isArray(db.profile.dashboard.widgets)) db.profile.dashboard.widgets = ['income','appointments','clients','sales','outstanding','inventory','orders','activity','trend'];
   db.integrations = { whatsapp: { provider: 'none', status: 'No conectado', phoneNumberId: '', businessAccountId: '', ...(isObj(db.integrations && db.integrations.whatsapp) ? db.integrations.whatsapp : {}) } };
   db.automations = isObj(db.automations) ? db.automations : { appointmentReminder: false, followup: false, birthday: false, lowStock: false, leadWelcome: false };
   for (const k of LISTS) if (!Array.isArray(db[k])) db[k] = [];
+  for (const u of db.users) { u.email = String(u.email || '').trim().toLowerCase(); u.passwordHash = u.passwordHash || ''; u.passwordSalt = u.passwordSalt || ''; u.lastName = u.lastName || ''; u.phone = u.phone || ''; u.station = u.station || ''; u.preferences = isObj(u.preferences) ? u.preferences : {}; u.schedule = { days: [1,2,3,4,5,6], start: '09:00', end: '18:00', breakStart: '13:00', breakEnd: '14:00', break2Start: '', break2End: '', ...(isObj(u.schedule) ? u.schedule : {}) }; u.vacations = Array.isArray(u.vacations) ? u.vacations : []; }
   if (!Array.isArray(db.organizationUnits) || !db.organizationUnits.length)
     db.organizationUnits = [{ id: 1, name: db.profile.name || 'Mi negocio', kind: 'business', parentId: null, country: db.profile.country || '' }];
   for (const a of db.appointments) { a.status = APPT_STATUS.includes(a.status) ? a.status : 'Pendiente'; a.price = +a.price || 0; a.notes = a.notes || ''; if (a.workerId == null) a.workerId = null; }
-  for (const c of db.clients) { c.phone = c.phone || ''; c.email = c.email || ''; c.notes = c.notes || ''; }
+  for (const c of db.clients) { c.phone = c.phone || ''; c.email = c.email || ''; c.notes = c.notes || ''; c.documentType = c.documentType || 'CC'; c.documentNumber = c.documentNumber || ''; }
   let max = 0;
   const seen = r => { const n = +(r && r.id); if (Number.isFinite(n) && n > max) max = n; };
   for (const k of [...LISTS, 'organizationUnits']) for (const r of db[k]) seen(r);
   for (const k of ['tables', 'categories', 'menu', 'waste', 'notifications']) for (const r of db.pos[k]) seen(r);
+  for (const r of db.workforce.businessDaysOff) seen(r); for (const u of db.users) for (const r of (u.vacations || [])) seen(r);
   for (const o of db.pos.orders) { seen(o); for (const l of o.lines || []) seen(l); for (const x of o.payments || []) seen(x); }
   for (const sh of db.pos.shifts) { seen(sh); for (const m of sh.movements || []) seen(m); }
   db.meta.nextId = Math.max(+db.meta.nextId || 0, max + 1);
@@ -135,10 +142,19 @@ function validate(type, raw, db, ctx = {}) {
 
   switch (type) {
     case 'client': {
-      text('name', { req: true, max: 120 }); const ph = text('phone', { max: 40 }), em = text('email', { max: 120 }); text('notes', { max: 500 });
+      text('name', { req: true, max: 120 });
+      const documentType = String(get('documentType') || 'CC');
+      if (!['CC', 'CE', 'NIT', 'Pasaporte', 'Otro'].includes(documentType)) errors.documentType = 'Tipo de documento inválido.';
+      const documentNumber = text('documentNumber', { max: 30 });
+      const normalizedDocument = documentNumber.toUpperCase().replace(/[^A-Z0-9]/g, '');
+      if (documentNumber && !/^[A-Za-z0-9.\- ]{3,30}$/.test(documentNumber)) errors.documentNumber = 'Documento inválido. Usa entre 3 y 30 letras o números.';
+      if (normalizedDocument && db.clients.some(c => String(c.documentNumber || '').toUpperCase().replace(/[^A-Z0-9]/g, '') === normalizedDocument && c.id !== ctx.editId)) errors.documentNumber = 'Ya existe un cliente con ese documento.';
+      value.documentType = documentNumber ? documentType : '';
+      value.documentNumber = documentNumber;
+      const ph = text('phone', { max: 40 }), em = text('email', { max: 120 }); text('notes', { max: 500 });
       if (ph && !PHONE_RE.test(ph)) errors.phone = 'Teléfono inválido.';
       if (em && !EMAIL_RE.test(em)) errors.email = 'Correo inválido.';
-      if (!ph && !em && !errors.phone && !errors.email) errors.phone = 'Indica teléfono o correo.';
+      if (!ph && !em && !documentNumber && !errors.phone && !errors.email) errors.phone = 'Indica cédula/documento, teléfono o correo.';
       break;
     }
     case 'service':
@@ -208,21 +224,49 @@ function validate(type, raw, db, ctx = {}) {
       oneOf('currency', Cat.CURRENCY_CODES); oneOf('language', ['es', 'en', 'pt', 'fr']);
       if (get('dateFormat') != null) oneOf('dateFormat', ['auto', 'DMY', 'MDY', 'YMD']); if (get('timeFormat') != null) oneOf('timeFormat', ['24h', '12h']);
       oneOf('accountMode', ['single', 'group', 'both']);
+      if (get('productMode') != null) oneOf('productMode', ['suite', 'pos']);
       const tz = text('timezone', { req: true, max: 60 });
       if (tz && !errors.timezone) { try { new Intl.DateTimeFormat('es', { timeZone: tz }); } catch (e) { errors.timezone = 'Zona horaria inválida (ej. America/Bogota).'; } }
       break;
     }
     case 'user': {
-      text('name', { req: true, max: 80 }); oneOf('role', Object.keys(Cat.ROLES));
+      text('name', { req: true, max: 80 }); text('lastName', { max: 80 }); text('phone', { max: 40 }); text('station', { max: 80 }); oneOf('role', Object.keys(Cat.ROLES));
+      if (value.phone && !PHONE_RE.test(value.phone)) errors.phone = 'Teléfono inválido.';
+      value.email = String(get('email') || '').trim().toLowerCase();
+      if (value.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.email)) errors.email = 'Correo inválido.';
+      if (value.role === 'admin' && db.auth.enabled && !value.email) errors.email = 'El administrador necesita correo.';
+      if (value.email && db.users.some(u => (u.email || '').toLowerCase() === value.email && u.id !== ctx.editId)) errors.email = 'Este correo ya está registrado.';
       if (db.users.some(u => u.name.toLowerCase() === value.name.toLowerCase() && u.id !== ctx.editId)) errors.name = 'Ya existe un usuario con ese nombre.';
-      const pin = String(get('pin') ?? '').trim();
+      const pin = String(get('pin') ?? '').trim(), password = String(get('password') || '');
       if (pin && !/^\d{4,8}$/.test(pin)) errors.pin = 'El PIN debe tener de 4 a 8 dígitos.';
-      if (!pin && !ctx.editId && db.auth.enabled) errors.pin = 'Indica un PIN (4 a 8 dígitos).';
-      value.pin = pin; value.active = get('active') !== 'no'; break;
+      if (!pin && !ctx.editId && db.auth.enabled && value.role !== 'admin') errors.pin = 'Indica un PIN (4 a 8 dígitos) para empleados.';
+      if (value.role === 'admin' && (password || !ctx.editId) && password.length < 8) errors.password = 'La contraseña debe tener al menos 8 caracteres.';
+      value.pin = pin; value.password = password; value.active = get('active') !== 'no'; break;
     }
     default: errors._ = 'Tipo desconocido.';
   }
   return { ok: !Object.keys(errors).length, errors, value };
+}
+
+// ---------- disponibilidad laboral ----------
+function workerAvailability(db, workerId, date, time, duration = 30) {
+  const w = db.users.find(x => x.id === +workerId && x.active !== false);
+  if (!w) return { ok: false, reason: 'Profesional no disponible.' };
+  if ((db.workforce?.businessDaysOff || []).some(x => date >= x.start && date <= x.end)) return { ok: false, reason: 'El negocio está cerrado en esa fecha.' };
+  if ((w.vacations || []).some(x => date >= x.start && date <= x.end)) return { ok: false, reason: 'El empleado está de vacaciones o permiso.' };
+  const day = new Date(date + 'T12:00:00').getDay(), sch = w.schedule || {};
+  if (Array.isArray(sch.days) && !sch.days.includes(day)) return { ok: false, reason: 'El empleado no trabaja ese día.' };
+  const to = t => { const [h,m] = String(t || '00:00').split(':').map(Number); return h*60+m; };
+  const start = to(time), end = start + duration;
+  if (sch.start && start < to(sch.start) || sch.end && end > to(sch.end)) return { ok: false, reason: 'Fuera del horario laboral.' };
+  for (const [bs, be] of [[sch.breakStart, sch.breakEnd], [sch.break2Start, sch.break2End]]) if (bs && be && start < to(be) && end > to(bs)) return { ok: false, reason: 'Coincide con el descanso del empleado.' };
+  return { ok: true };
+}
+function addTimeOff(db, workerId, start, end, reason = '') {
+  if (!validDate(start) || !validDate(end) || end < start) return fail('Rango de fechas inválido.');
+  if (workerId === 'business' || workerId == null) db.workforce.businessDaysOff.push({ id: nextId(db), start, end, reason: String(reason).slice(0,200) });
+  else { const w = db.users.find(x => x.id === +workerId); if (!w) return fail('Empleado no encontrado.'); w.vacations = Array.isArray(w.vacations) ? w.vacations : []; w.vacations.push({ id: nextId(db), start, end, reason: String(reason).slice(0,200) }); }
+  return { ok: true };
 }
 
 // ---------- agenda ----------
@@ -242,7 +286,7 @@ const COLLECTION = { client: 'clients', service: 'services', appointment: 'appoi
 function commit(db, type, v, editId = null) {
   const now = new Date().toISOString();
   if (type === 'user') {
-    const apply = r => { r.name = v.name; r.role = v.role; r.active = v.active; if (v.pin) { r.salt = Cat.newSalt(); r.pinHash = Cat.hashPin(v.pin, r.salt); } };
+    const apply = r => { r.name = v.name; r.lastName = v.lastName || ''; r.phone = v.phone || ''; r.station = v.station || ''; r.role = v.role; r.active = v.active; r.email = v.email || ''; r.schedule = r.schedule || { days: [1,2,3,4,5,6], start: '09:00', end: '18:00', breakStart: '13:00', breakEnd: '14:00' }; r.vacations = Array.isArray(r.vacations) ? r.vacations : []; if (v.pin) { r.salt = Cat.newSalt(); r.pinHash = Cat.hashPin(v.pin, r.salt); } if (v.password) { r.passwordSalt = Cat.newSalt(); r.passwordHash = Cat.hashPin(v.password, r.passwordSalt); } };
     if (editId) { const r = db.users.find(x => x.id === editId); if (!r) return fail('El usuario ya no existe.'); if ((r.role === 'admin' && (v.role !== 'admin' || !v.active)) && !db.users.some(u => u.id !== r.id && u.role === 'admin' && u.active)) return fail('Debe quedar al menos un administrador activo.'); apply(r); r.updatedAt = now; return { ok: true, id: r.id }; }
     const r = { id: nextId(db), createdAt: now }; apply(r); db.users.push(r); return { ok: true, id: r.id };
   }
@@ -386,5 +430,5 @@ return { APP_VERSION, SCHEMA_VERSION, KEY, MAX_FILE_BYTES, FILE_EXT, APPT_STATUS
   today, addDays, isoDate, esc, money, formatBytes, csvCell, fileExt, validateFile, saleBalance, saleStatus, activeSales,
   r2, r3, Cat, can: Cat.can, ROLES: Cat.ROLES, defaultPos, recommendedModules, rescheduleAppointment, ADMIN_ACTOR: Cat.ADMIN_ACTOR,
   defaultDb, defaultProfile, migrate, nextId, validate, appointmentConflicts, commit, convertQuote, voidSale, remove, usage, usageText,
-  addAttachment, removeAttachment, attachmentsOf, summary, clone, isObj };
+  addAttachment, removeAttachment, attachmentsOf, summary, clone, isObj, workerAvailability, addTimeOff };
 });

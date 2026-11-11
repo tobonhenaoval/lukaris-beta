@@ -1,9 +1,10 @@
 'use strict';
-/* LK ONE 1.12 · interfaz. La lógica de negocio vive en core.js; el guardado, en Store. */
+/* LK ONE 1.13.6 · interfaz. La lógica de negocio vive en core.js; el guardado, en Store. */
 const C = LukarisCore, Cat = C.Cat;
 const { esc, saleBalance, saleStatus, today, formatBytes } = C;
 let db, page = 'home', apptView = 'list', calStart = null;
 const money = n => C.money(n, db.profile);
+const dashboardConfig = () => { const u=currentUser(); return u?.preferences?.dashboard || db.profile.dashboard || {widgets:['income','appointments','clients','sales','outstanding','inventory','orders','activity','trend','upcoming','alerts']}; };
 const $ = s => document.querySelector(s);
 const byId = (list, id) => db[list].find(x => x.id === id);
 const clientName = id => byId('clients', id)?.name || 'Cliente eliminado';
@@ -16,36 +17,40 @@ const authOn = () => !!(db && db.auth && db.auth.enabled);
 function currentUser() {
   if (!authOn()) return C.ADMIN_ACTOR;
   let id = null; try { id = +sessionStorage.getItem(SESSION_KEY); } catch (e) {}
-  const u = db.users.find(x => x.id === id && x.active !== false); return u ? { id: u.id, name: u.name, role: u.role } : null;
+  const u = db.users.find(x => x.id === id && x.active !== false); return u ? { id: u.id, name: [u.name,u.lastName].filter(Boolean).join(' '), role: u.role } : null;
 }
+const globalNotifications = () => { const u = currentUser(); return db.pos.notifications.filter(n => !n.read && (n.recipientUserId ? (!authOn() || n.recipientUserId === u?.id || u?.role === 'admin' || u?.role === 'manager') : (!n.waiterId || !authOn() || n.waiterId === u?.id || u?.role === 'admin' || u?.role === 'manager'))); };
 const can = perm => { const u = currentUser(); return !!u && C.can(u, perm); };
 const actor = () => currentUser() || { id: -1, name: 'Sin sesión', role: 'none' };
 const NAV = [['home', '⌂', 'Resumen'], ['pos', '◈', 'LK POS'], ['appointments', '▦', 'Agenda'], ['clients', '♙', 'Clientes'], ['commercial', '▣', 'Comercial'], ['cash', '$', 'Finanzas'], ['services', '✦', 'Servicios'], ['inventory', '▤', 'Inventario'], ['work', '▧', 'Operaciones'], ['automations', '✧', 'Automatizaciones'], ['reports', '▥', 'Reportes'], ['settings', '⚙', 'Configuración']];
 function pageVisible(p) {
-  if (p === 'settings') return can('page.settings'); if (p === 'home') return can('page.home');
+  if (p === 'settings') return can('page.settings');
+  if (db && db.profile && db.profile.productMode === 'pos') return p === 'pos' ? can('page.pos') : false;
+  if (p === 'home') return can('page.home');
   const m = Cat.PAGE_MODULE[p]; return (!m || activeModules().has(m)) && can('page.' + p);
 }
 const firstPage = () => (NAV.find(([p]) => pageVisible(p)) || ['home'])[0];
 function buildNav() { $('#nav').innerHTML = NAV.filter(([p]) => pageVisible(p)).map(([p, i, l]) => `<button type="button" data-page="${p}" class="${p === page ? 'active' : ''}">${i} ${l}</button>`).join(''); }
 function showLogin() {
   if (!$('#login').hidden) return;
-  const users = db.users.filter(u => u.active !== false && u.pinHash);
+  const employees = db.users.filter(u => u.active !== false && u.role !== 'admin' && u.pinHash);
   $('#login').hidden = false;
-  $('#lbody').innerHTML = `<form data-form="login" novalidate>${sel('Usuario', 'userId', users.map(u => [u.id, `${u.name} · ${Cat.ROLES[u.role]}`]), users[0]?.id, true)}${fld('PIN', 'pin', { type: 'password', req: true, full: true, attrs: 'autocomplete="off" inputmode="numeric"' })}<div class="actions"><button type="submit" class="btn primary">Entrar</button></div></form><p class="desc" style="margin:12px 0 0">Protección básica local: no sustituye una autenticación de servidor (ver documentación).</p>`;
-  $('#lbody [name=pin]')?.focus();
+  $('#lbody').innerHTML = `<div class="login-tabs"><button type="button" class="chip on" data-login-mode="admin">Administrador</button><button type="button" class="chip" data-login-mode="staff">Empleado · PIN</button></div><form data-form="login" data-mode="admin" novalidate><div class="formgrid">${fld('Correo electrónico', 'email', { type: 'email', req: true, full: true, attrs: 'autocomplete="username"' })}${fld('Contraseña', 'password', { type: 'password', req: true, full: true, attrs: 'autocomplete="current-password"' })}</div><div class="actions"><button type="submit" class="btn primary">Ingresar como administrador</button></div></form><form data-form="login" data-mode="staff" hidden novalidate>${sel('Empleado', 'userId', employees.map(u => [u.id, `${[u.name,u.lastName].filter(Boolean).join(' ')} · ${Cat.ROLES[u.role]}`]), employees[0]?.id, true)}${fld('PIN personal', 'pin', { type: 'password', req: true, full: true, attrs: 'autocomplete="off" inputmode="numeric"' })}<div class="actions"><button type="submit" class="btn primary">Ingresar como empleado</button></div></form><p class="desc" style="margin:12px 0 0">Acceso local de demostración. No sustituye autenticación segura en servidor.</p>`;
+  $('#lbody [name=email]')?.focus();
 }
 const hideLogin = () => { $('#login').hidden = true; $('#lbody').innerHTML = ''; };
 function doLogin(form, raw) {
   const now = Date.now(); if (now < lockUntil) return toast(`Demasiados intentos. Espera ${Math.ceil((lockUntil - now) / 1000)} s.`, 'err');
-  const u = db.users.find(x => x.id === +raw.userId && x.active !== false);
-  if (!u || !u.pinHash || Cat.hashPin(String(raw.pin || ''), u.salt) !== u.pinHash) { loginFails++; if (loginFails >= 5) { lockUntil = now + 30000; loginFails = 0; } return showErrors(form, { pin: 'PIN incorrecto.' }); }
+  const mode = form.dataset.mode || 'staff';
+  const u = mode === 'admin' ? db.users.find(x => x.active !== false && x.role === 'admin' && (x.email || '').toLowerCase() === String(raw.email || '').trim().toLowerCase() && x.passwordHash && Cat.hashPin(String(raw.password || ''), x.passwordSalt) === x.passwordHash) : db.users.find(x => x.id === +raw.userId && x.active !== false && x.role !== 'admin' && x.pinHash && Cat.hashPin(String(raw.pin || ''), x.salt) === x.pinHash);
+  if (!u) { loginFails++; if (loginFails >= 5) { lockUntil = now + 30000; loginFails = 0; } return showErrors(form, mode === 'admin' ? { password: 'Correo o contraseña incorrectos.' } : { pin: 'PIN incorrecto.' }); }
   loginFails = 0; try { sessionStorage.setItem(SESSION_KEY, String(u.id)); } catch (e) {}
   hideLogin(); resetPos(); page = firstPage(); render(); toast('Bienvenido, ' + u.name + '.');
 }
 const resetPos = () => { try { PosUI.S.orderId = null; PosUI.S.tab = ''; PosUI.S.cat = 0; } catch (e) {} };
 function logout() { try { sessionStorage.removeItem(SESSION_KEY); } catch (e) {} closeModal(); resetPos(); render(); }
 const FORM_PERM = { client: 'edit.records', service: 'edit.records', appointment: 'edit.records', quote: 'edit.records', sale: 'edit.records', order: 'edit.records', receivable: 'edit.records', reschedule: 'edit.records', product: 'inventory.edit', movement: 'inventory.edit', unit: 'settings.profile', user: 'users.manage', profile: 'settings.profile' };
-const ACTION_PERM = { delete: 'delete.records', 'void-sale': 'finance.edit', 'convert-quote': 'edit.records', 'appt-status': 'edit.records', 'export-backup': 'backup', 'load-showcase': 'backup', 'reset-data': 'backup', 'toggle-automation': 'settings.profile', 'auth-enable': 'users.manage', 'auth-disable': 'users.manage', 'apply-recommended': 'settings.profile', 'wa-plan': 'edit.records', 'wa-release': 'edit.records', 'wa-manual': 'edit.records', 'reschedule': 'edit.records' };
+const ACTION_PERM = { delete: 'delete.records', 'void-sale': 'finance.edit', 'convert-quote': 'edit.records', 'appt-status': 'edit.records', 'export-backup': 'backup', 'load-showcase': 'backup', 'reset-data': 'backup', 'toggle-automation': 'settings.profile', 'auth-enable': 'users.manage', 'auth-disable': 'users.manage', 'apply-recommended': 'settings.profile', 'wa-plan': 'edit.records', 'wa-release': 'edit.records', 'wa-manual': 'edit.records', 'reschedule': 'edit.records', 'staff-schedule': 'users.manage', 'staff-vacation': 'users.manage', 'business-closure': 'users.manage', 'remove-timeoff': 'users.manage' };
 const deny = perm => toast('No tienes permiso para esta acción' + (Cat.PERM_LABELS[perm] ? ' (' + Cat.PERM_LABELS[perm] + ')' : '') + '.', 'err');
 
 // ================= Almacenamiento: servidor local con respaldo en el navegador =================
@@ -159,7 +164,7 @@ const fmtTime = t => { if (!/^\d{2}:\d{2}$/.test(String(t || '')) || db.profile.
 const fmtStamp = iso => { const d = new Date(iso); return isNaN(d) ? '' : fmtDate(C.isoDate(d)) + ' ' + fmtTime(String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0')); };
 const pill = (t, c = '') => `<span class="pill ${c}">${esc(t)}</span>`;
 const apptPill = s => pill(s, s === 'Confirmada' || s === 'Atendida' ? 'ok' : s === 'Cancelada' ? 'bad' : 'wait');
-const workerName = id => db.users.find(u => u.id === id)?.name || '';
+const workerName = id => { const u = db.users.find(u => u.id === id); return u ? [u.name, u.lastName].filter(Boolean).join(' ') : ''; };
 const workers = () => db.users.filter(u => u.active !== false && ['employee', 'manager'].includes(u.role));
 const attCount = (type, id) => { const n = C.attachmentsOf(db, type, id).length; return n ? `📎 ${n}` : '—'; };
 
@@ -169,7 +174,7 @@ function render() {
   $('#logo').innerHTML = (db.profile.logo && /^data:image\//.test(db.profile.logo) ? `<img src="${esc(db.profile.logo)}" alt="Logotipo">` : '') + 'LK ONE';
   if (authOn() && !currentUser()) { buildNav(); $('#userbox').innerHTML = ''; $app().innerHTML = ''; showLogin(); return; }
   if (!pageVisible(page)) page = firstPage();
-  const u = currentUser(); $('#userbox').innerHTML = authOn() ? `<b>${esc(u.name)}</b> · ${esc(Cat.ROLES[u.role])} <button type="button" class="btn small" data-act="logout">Salir</button>` : '';
+  const u = currentUser(), unread = globalNotifications().length, bell = `<button type="button" class="btn small" data-act="team-notifications">🔔 ${unread ? `Avisos (${unread})` : 'Avisos'}</button>`; $('#userbox').innerHTML = authOn() ? `<b>${esc(u.name)}</b> · ${esc(Cat.ROLES[u.role])} ${bell} <button type="button" class="btn small" data-act="theme-toggle">${(db.profile.appearance || {}).mode === 'dark' ? '☀ Claro' : '☾ Oscuro'}</button> <button type="button" class="btn small" data-act="logout">Salir</button>` : `${bell} <button type="button" class="btn small" data-act="theme-toggle">${(db.profile.appearance || {}).mode === 'dark' ? '☀ Claro' : '☾ Oscuro'}</button>`;
   document.body.classList.toggle('pos-mode', page === 'pos'); $('#crumb').textContent = T[page]; buildNav();
   PAGES[page](); if (page === 'home') backupBanner(); document.querySelectorAll('tr.rowlink').forEach(r => r.tabIndex = 0);
 }
@@ -182,13 +187,39 @@ function posHomeCard() {
 }
 const PAGES = {
   home() {
-    const s = C.summary(db), next = s.upcoming.slice(0, 5), active = db.orders.filter(o => o.status !== 'Entregado').slice(0, 4);
-    $app().innerHTML = head('Panel de control', 'Bienvenido a LK ONE', 'Vista general de la operación de tu negocio.', can('edit.records') ? btn('+ Nuevo registro', 'new-menu', {}, 'primary') : '') +
-      `<section class="card showcase-hero"><div><span class="eyebrow">LK ONE · PLATAFORMA MULTISECTORIAL</span><h2>Todo tu negocio, conectado en un solo lugar.</h2><p class="desc">Clientes, agenda, ventas, finanzas, inventario, operaciones y automatizaciones en una experiencia adaptable.</p></div><div class="inline-actions"><button class="btn" data-act="go" data-page="automations">Explorar automatizaciones</button><button class="btn primary" data-act="go" data-page="reports">Ver reportes</button></div></section><div class="stats"><div class="stat"><small>Citas de hoy</small><strong>${s.todayApps}</strong></div><div class="stat"><small>Ingresos de hoy</small><strong>${money(s.income)}</strong></div><div class="stat"><small>Clientes registrados</small><strong>${db.clients.length}</strong></div><div class="stat"><small>Productos en inventario</small><strong>${db.products.length}</strong></div><div class="stat"><small>Por cobrar</small><strong>${money(s.outstanding)}</strong></div></div>
-${posHomeCard()}<div class="grid2"><section class="card"><h3>Próximas citas</h3><p class="desc">Hoy y los días siguientes (toca una para ver su detalle)</p>${table(['Fecha', 'Hora', 'Cliente', 'Servicio', 'Estado'], next.map(a => tr([fmtDate(a.date), fmtTime(a.time), esc(clientName(a.clientId)), esc(serviceName(a.serviceId)), apptPill(a.status)], { act: 'appt-detail', id: a.id, cls: a.date === today() ? 'today' : '' })).join(''))}
-<h3 style="margin-top:18px">Operaciones activas</h3>${table(['Fecha', 'Cliente', 'Detalle', 'Estado'], active.map(o => tr([fmtDate(o.date), esc(clientName(o.clientId)), esc(o.detail), pill(o.status, 'wait')], { act: 'edit-row', id: o.id })).join(''))}</section>
-<section class="card"><h3>Módulos del sistema</h3><p class="desc">Un núcleo adaptable a distintas verticales</p><div class="quick">${NAV.filter(([p]) => p !== 'home' && p !== 'settings' && pageVisible(p)).map(([p, i, l]) => `<button type="button" data-act="go" data-page="${p}">${i}<b>${l}</b></button>`).join('')}</div>
-<div class="notice">${Store.mode === 'server' ? 'Tus datos se guardan en el servidor local de LK ONE (carpeta <b>data/</b>) y se copian en este navegador.' : 'Modo sin servidor: la información se guarda solo en este navegador. Ejecuta <b>npm start</b> para guardarla en un archivo.'}</div></section></div>`;
+    const s = C.summary(db), cfg = dashboardConfig(), widgets = cfg.widgets || [];
+    const now = today(), since = C.addDays(-6), sales = C.activeSales(db), paid7 = db.payments.filter(p => p.date >= since && p.date <= now).reduce((n,p) => n + (+p.amount || 0), 0);
+    const activeOrders = db.orders.filter(o => !['Entregado','Cancelado'].includes(o.status));
+    const lowStock = db.products.filter(p => +p.stock <= +p.minStock && +p.minStock > 0);
+    const metrics = {
+      income: ['Ingresos de hoy', money(s.income), 'Pagos recibidos hoy', '↗', 'cash'],
+      appointments: ['Citas de hoy', String(s.todayApps), 'Reservas programadas', '▦', 'appointments'],
+      clients: ['Clientes', String(db.clients.length), 'Personas registradas', '♙', 'clients'],
+      sales: ['Ventas activas', String(sales.length), 'Operaciones comerciales', '▣', 'commercial'],
+      outstanding: ['Por cobrar', money(s.outstanding), 'Saldos pendientes', '$', 'commercial'],
+      inventory: ['Productos', String(db.products.length), lowStock.length ? `${lowStock.length} con stock bajo` : 'Inventario registrado', '▤', 'inventory'],
+      orders: ['Encargos activos', String(activeOrders.length), 'Pendientes de entrega', '▧', 'work']
+    };
+    const metricCards = Object.entries(metrics).filter(([k]) => widgets.includes(k) && pageVisible(metrics[k][4])).map(([k,m]) => `<button class="metric-card" type="button" data-act="go" data-page="${m[4]}"><span class="metric-icon">${m[3]}</span><span class="metric-label">${m[0]}</span><strong>${m[1]}</strong><small>${m[2]}</small></button>`).join('');
+    const days = Array.from({length:7},(_,i)=>C.addDays(i-6));
+    const trendMax = Math.max(1,...days.map(d=>db.payments.filter(p=>p.date===d).reduce((n,p)=>n+(+p.amount||0),0)));
+    const trend = days.map(d=>{const v=db.payments.filter(p=>p.date===d).reduce((n,p)=>n+(+p.amount||0),0);return `<div class="trend-col" title="${fmtDate(d)} · ${money(v)}"><div class="trend-bar" style="height:${Math.max(4,Math.round(v/trendMax*100))}%"></div><small>${d.slice(8)}</small></div>`;}).join('');
+    const activity = [];
+    db.payments.forEach(x=>activity.push({date:x.date||now,time:x.createdAt||'',title:'Pago registrado',detail:`${x.description||'Pago'} · ${money(x.amount)}`,page:'cash'}));
+    db.appointments.forEach(x=>activity.push({date:x.date||now,time:x.createdAt||'',title:'Cita · '+(x.status||'Pendiente'),detail:`${clientName(x.clientId)} · ${serviceName(x.serviceId)} · ${x.time||''}`,page:'appointments'}));
+    db.sales.forEach(x=>activity.push({date:x.date||now,time:x.createdAt||'',title:'Venta registrada',detail:`${clientName(x.clientId)} · ${money(x.total)}`,page:'commercial'}));
+    db.orders.forEach(x=>activity.push({date:x.date||now,time:x.updatedAt||x.createdAt||'',title:'Encargo · '+(x.status||'Recibido'),detail:`${x.vehicle||'Pedido'} · ${clientName(x.clientId)}`,page:'work'}));
+    db.inventoryMovements.forEach(x=>activity.push({date:x.date||now,time:x.createdAt||'',title:'Movimiento de inventario',detail:`${byId('products',x.productId)?.name||'Producto'} · ${x.type||''} ${x.quantity||''}`,page:'inventory'}));
+    activity.sort((a,b)=>(b.date+b.time).localeCompare(a.date+a.time));
+    const activityHtml = activity.slice(0,10).map(x=>`<button type="button" class="activity-item" data-act="go" data-page="${x.page}"><span class="activity-dot"></span><span><b>${esc(x.title)}</b><small>${esc(x.detail)}</small></span><time>${fmtDate(x.date)}</time></button>`).join('') || '<p class="empty-state">Todavía no hay movimientos. Cuando registres citas, ventas o pagos, aparecerán aquí.</p>';
+    const next = s.upcoming.slice(0,5);
+    $app().innerHTML = head('Tu negocio, de un vistazo', 'Resumen', 'Lo importante para hoy, organizado en un solo lugar.', `<button class="btn" data-act="dashboard-customize">Personalizar panel</button> ${can('edit.records') ? btn('+ Crear', 'new-menu', {}, 'primary') : ''}`) +
+      `<section class="welcome-strip"><div><span class="eyebrow">${esc(db.profile.name)} · PANEL DE CONTROL</span><h2>Hola${currentUser()?.name ? ', '+esc(currentUser().name.split(' ')[0]) : ''}. ¿Qué está pasando hoy?</h2><p>Consulta el estado del negocio y entra directamente a lo que necesitas.</p></div><div class="welcome-actions">${can('edit.records')?btn('+ Nueva cita','new',{type:'appointment'},'primary'):''}${can('edit.records')?btn('+ Registrar venta','new',{type:'sale'}):''}</div></section>
+      <div class="dashboard-grid">${metricCards || '<section class="card empty-state">No hay indicadores visibles. Personaliza tu panel para elegir qué quieres consultar.</section>'}</div>
+      <div class="dashboard-lower">${widgets.includes('trend') ? `<section class="card dashboard-card"><div class="section-title"><div><h3>Actividad de ingresos</h3><p class="desc">Pagos recibidos durante los últimos 7 días</p></div><b class="trend-total">${money(paid7)}</b></div><div class="trend-chart">${trend}</div></section>` : ''}
+      ${widgets.includes('activity') ? `<section class="card dashboard-card"><div class="section-title"><div><h3>Registro de actividad</h3><p class="desc">Últimos movimientos de tu negocio</p></div><span class="soft-tag">${activity.length} registros</span></div><div class="activity-list">${activityHtml}</div></section>` : ''}</div>
+      <div class="dashboard-lower secondary-lower">${widgets.includes('upcoming') ? `<section class="card dashboard-card"><div class="section-title"><div><h3>Próximas citas</h3><p class="desc">Reservas próximas</p></div>${btn('Ver agenda','go',{page:'appointments'},'small')}</div>${table(['Fecha','Hora','Cliente','Servicio','Estado'],next.map(a=>tr([fmtDate(a.date),fmtTime(a.time),esc(clientName(a.clientId)),esc(serviceName(a.serviceId)),apptPill(a.status)],{act:'appt-detail',id:a.id})).join(''))}</section>`:''}
+      ${widgets.includes('alerts') ? `<section class="card dashboard-card"><div class="section-title"><div><h3>Atención necesaria</h3><p class="desc">Elementos que conviene revisar</p></div></div><div class="alert-stack">${lowStock.length?`<button class="alert-line" data-act="go" data-page="inventory">⚠ ${lowStock.length} productos con stock bajo</button>`:''}${s.outstanding>0?`<button class="alert-line" data-act="go" data-page="commercial">$ ${money(s.outstanding)} pendientes por cobrar</button>`:''}${activeOrders.length?`<button class="alert-line" data-act="go" data-page="work">▧ ${activeOrders.length} encargos en proceso</button>`:''}${!lowStock.length&&!s.outstanding&&!activeOrders.length?'<p class="empty-state">Todo está al día por ahora.</p>':''}</div></section>`:''}</div>`;
   },
   appointments() {
     const tabs = `<div class="tabs"><button type="button" class="chip ${apptView === 'list' ? 'on' : ''}" data-act="appt-view" data-view="list">Lista</button><button type="button" class="chip ${apptView === 'week' ? 'on' : ''}" data-act="appt-view" data-view="week">Calendario semanal</button></div>`;
@@ -198,8 +229,8 @@ ${posHomeCard()}<div class="grid2"><section class="card"><h3>Próximas citas</h3
     $app().innerHTML = headHtml + tabs + `<section class="card" id="scope">${filterBar({ status: C.APPT_STATUS, range: true })}${table(['Fecha', 'Hora', 'Cliente', 'Servicio', 'Valor', 'Estado', 'Adjuntos', ''], rows)}</section>`;
   },
   clients() {
-    const rows = db.clients.map(c => tr([`<b>${esc(c.name)}</b>`, esc(c.phone || '—'), esc(c.email || '—'), attCount('client', c.id), acts('client', c.id, c.phone ? btn('WhatsApp', 'whatsapp-client', {id:c.id}, 'small') : '')], { act: 'client-detail', id: c.id, q: [c.name, c.phone, c.email].join(' ') })).join('');
-    $app().innerHTML = head('Relaciones', 'Clientes', 'Base central de clientes. Toca un cliente para ver su ficha, citas y adjuntos.', btn('+ Nuevo cliente', 'new', { type: 'client' }, 'primary')) + `<section class="card" id="scope">${filterBar()}${table(['Nombre', 'Teléfono', 'Correo', 'Adjuntos', ''], rows)}</section>`;
+    const rows = db.clients.map(c => tr([`<b>${esc(c.name)}</b>`, esc(c.documentNumber ? `${c.documentType || 'ID'} · ${c.documentNumber}` : '—'), esc(c.phone || '—'), esc(c.email || '—'), attCount('client', c.id), acts('client', c.id, c.phone ? btn('WhatsApp', 'whatsapp-client', {id:c.id}, 'small') : '')], { act: 'client-detail', id: c.id, q: [c.name, c.documentType, c.documentNumber, c.phone, c.email].join(' ') })).join('');
+    $app().innerHTML = head('Relaciones', 'Clientes', 'Base central de clientes. Toca un cliente para ver su ficha, citas y adjuntos.', btn('+ Nuevo cliente', 'new', { type: 'client' }, 'primary')) + `<section class="card" id="scope">${filterBar()}${table(['Nombre', 'Documento', 'Teléfono', 'Correo', 'Adjuntos', ''], rows)}</section>`;
   },
   commercial() {
     const act = C.activeSales(db);
@@ -229,7 +260,13 @@ ${posHomeCard()}<div class="grid2"><section class="card"><h3>Próximas citas</h3
       `<section class="card" id="scope"><h3>Existencias</h3>${filterBar()}${table(['Producto', 'SKU', 'Stock', 'Costo', 'Precio venta', ''], rows)}</section><section class="card"><h3>Últimos movimientos</h3><p class="desc">Cada movimiento actualiza las existencias del producto.</p>${table(['Fecha', 'Producto', 'Tipo', 'Cantidad', 'Motivo'], mv)}</section>`;
   },
   work() {
-    $app().innerHTML = head('Operaciones', 'Operaciones', 'Trabajos, proyectos, pedidos o solicitudes según tu actividad.', btn('+ Nueva orden', 'new', { type: 'order' }, 'primary')) + `<section class="card" id="scope">${filterBar({ status: C.ORDER_STATUS })}${table(['Fecha', 'Cliente', 'Referencia', 'Trabajo', 'Estado', 'Valor', ''], db.orders.map(o => tr([fmtDate(o.date), esc(clientName(o.clientId)), esc(o.vehicle), esc(o.detail), pill(o.status, o.status === 'Entregado' ? 'ok' : 'wait'), money(o.amount), acts('order', o.id)], { status: o.status })).join(''))}</section>`;
+    const staff = db.users.filter(u => u.active !== false && u.role !== 'admin' && (!authOn() || can('users.manage') || u.id === currentUser()?.id));
+    const days = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'];
+    const staffRows = staff.map(u => { const sc = u.schedule || {}; const working = (sc.days || []).map(d => days[d]).join(', '); const off = (u.vacations || []).filter(v => v.end >= today()).length; return tr([`<b>${esc([u.name,u.lastName].filter(Boolean).join(' '))}</b>`, esc(u.phone || '—'), esc(u.station || 'General'), esc(working || 'Sin días'), esc(`${sc.start || '—'}–${sc.end || '—'}`), esc([sc.breakStart && sc.breakEnd ? `${sc.breakStart}–${sc.breakEnd}` : '', sc.break2Start && sc.break2End ? `${sc.break2Start}–${sc.break2End}` : ''].filter(Boolean).join(' / ') || '—'), off ? pill(`${off} permiso(s)`, 'wait') : '—', (can('users.manage') ? btn('Horario', 'staff-schedule', {id:u.id}, 'small') + btn('Vacaciones / permiso', 'staff-vacation', {id:u.id}, 'small') : '—')]); }).join('');
+    const closures = (db.workforce.businessDaysOff || []).filter(v => v.end >= today());
+    $app().innerHTML = head('Operaciones', 'Operaciones y jornadas', 'Administra los trabajos, horarios, pausas, vacaciones y disponibilidad del equipo.', btn('+ Nueva orden', 'new', { type: 'order' }, 'primary')) +
+      `<section class="card"><h3>Horarios y trabajo del personal</h3><p class="desc">Configura los días y horas de cada empleado. La agenda utiliza esta disponibilidad para evitar asignar citas durante descansos, vacaciones o días no laborales.</p>${staff.length ? table(['Empleado','Celular','Área / estación','Días laborales','Horario','Pausa','Ausencias futuras',''], staffRows) : '<div class="empty">Agrega empleados desde Configuración → Equipo y permisos.</div>'}<div class="inline-actions">${can('users.manage') ? btn('＋ Registrar cierre o vacaciones de la empresa', 'business-closure', {}, 'primary') : ''}</div>${closures.length ? `<h3 style="margin-top:18px">Cierres y vacaciones de la empresa</h3>${table(['Desde','Hasta','Motivo',''], closures.map(v => tr([fmtDate(v.start),fmtDate(v.end),esc(v.reason || 'Cierre'),btn('Quitar','remove-timeoff',{id:v.id,scope:'business'},'small danger')])).join(''))}` : '<p class="desc" style="margin-top:12px">No hay cierres futuros registrados.</p>'}<div class="notice">Los cambios de disponibilidad se aplican a nuevas asignaciones. Las citas existentes no se borran: si coinciden con una ausencia, se muestran como conflicto para que el administrador decida su reprogramación.</div></section>
+      <section class="card" id="scope"><h3>Trabajos y operaciones</h3>${filterBar({ status: C.ORDER_STATUS })}${table(['Fecha', 'Cliente', 'Referencia', 'Trabajo', 'Estado', 'Valor', ''], db.orders.map(o => tr([fmtDate(o.date), esc(clientName(o.clientId)), esc(o.vehicle), esc(o.detail), pill(o.status, o.status === 'Entregado' ? 'ok' : 'wait'), money(o.amount), acts('order', o.id)], { status: o.status })).join(''))}</section>`;
   },
   automations() {
     const items = [
@@ -295,7 +332,7 @@ function clientDetail(id) {
   const sales = db.sales.filter(s => s.clientId === id), act = sales.filter(s => !s.voided), pays = db.payments.filter(p => p.clientId === id), quotes = db.quotes.filter(q => q.clientId === id), apps = db.appointments.filter(a => a.clientId === id).sort((a, b) => (b.date + b.time).localeCompare(a.date + a.time));
   const sold = act.reduce((a, s) => a + (+s.total || 0), 0), paid = act.reduce((a, s) => a + (+s.paid || 0), 0), due = act.reduce((a, s) => a + saleBalance(s), 0);
   const apptFiles = apps.flatMap(a => C.attachmentsOf(db, 'appointment', a.id).map(f => ({ ...f, when: a.date })));
-  openModal(c.name, `<p class="desc">${esc(c.phone || 'Sin teléfono')} · ${esc(c.email || 'sin correo')}</p>${c.notes ? `<p class="desc">${esc(c.notes)}</p>` : ''}
+  openModal(c.name, `<p class="desc">${c.documentNumber ? `${esc(c.documentType || 'Documento')}: ${esc(c.documentNumber)} · ` : ''}${esc(c.phone || 'Sin teléfono')} · ${esc(c.email || 'sin correo')}</p>${c.notes ? `<p class="desc">${esc(c.notes)}</p>` : ''}
 <div class="inline-actions" style="margin:0 0 12px">${btn('+ Cita', 'new', { type: 'appointment', client: id, back: 'client:' + id }, 'small primary')}${btn('+ Cotización', 'new', { type: 'quote', client: id, back: 'client:' + id }, 'small')}${btn('+ Venta', 'new', { type: 'sale', client: id, back: 'client:' + id }, 'small')}${btn('Editar', 'edit', { type: 'client', id }, 'small')}${btn('Eliminar', 'delete', { type: 'client', id }, 'small danger')}</div>
 <div class="stats" style="grid-template-columns:repeat(3,1fr)"><div class="stat"><small>Vendido</small><strong>${money(sold)}</strong></div><div class="stat"><small>Pagado</small><strong>${money(paid)}</strong></div><div class="stat"><small>Saldo</small><strong>${money(due)}</strong></div></div>
 ${attachBlock('client', id)}
@@ -310,11 +347,16 @@ function reopen(back) { const [k, id] = String(back || '').split(':'); if (k ===
 // ================= Formularios =================
 const fld = (label, name, o = {}) => `<label class="field ${o.full ? 'full' : ''}" data-name="${name}">${label}<input name="${name}" type="${o.type || 'text'}" value="${esc(o.value ?? '')}" ${o.req ? 'required' : ''} ${o.attrs || ''}></label>`;
 const area = (label, name, value = '', full = true) => `<label class="field ${full ? 'full' : ''}" data-name="${name}">${label}<textarea name="${name}" rows="2">${esc(value)}</textarea></label>`;
-const sel = (label, name, options, value, full = false) => `<label class="field ${full ? 'full' : ''}" data-name="${name}">${label}<select name="${name}">${options.map(([v, l, x]) => `<option value="${esc(v)}" ${String(v) === String(value) ? 'selected' : ''} ${x || ''}>${esc(l)}</option>`).join('')}</select></label>`;
+let selectSearchSeq = 0;
+const sel = (label, name, options, value, full = false) => {
+  const id = `lk-choice-${++selectSearchSeq}`;
+  const optionHtml = options.map(([v, l, x]) => `<option value="${esc(v)}" ${String(v) === String(value) ? 'selected' : ''} ${x || ''}>${esc(l)}</option>`).join('');
+  return `<label class="field choice-field ${full ? 'full' : ''}" data-name="${name}"><span>${label}</span><input class="choice-search" type="search" data-select-search="${id}" placeholder="Escribe para buscar…" aria-label="Buscar ${esc(String(label).replace(/<[^>]*>/g, ''))}" autocomplete="off"><select id="${id}" name="${name}" data-choice-select>${optionHtml}</select></label>`;
+};
 const list = a => a.map(x => [x, x]);
 const clientOpts = () => db.clients.map(c => [c.id, c.name]);
 const NEEDS_CLIENT = ['appointment', 'quote', 'sale', 'order'];
-const workerOpts = () => workers().length ? [['', 'Sin asignar'], ['auto', 'Asignar automáticamente (equilibrado)'], ...workers().map(u => [u.id, u.name])] : null;
+const workerOpts = () => workers().length ? [['', 'Sin asignar'], ['auto', 'Asignar automáticamente (equilibrado)'], ...workers().map(u => [u.id, [u.name,u.lastName].filter(Boolean).join(' ')])] : null;
 const fileField = (ownerType, id) => `<div class="attach" style="margin-top:14px"><label class="field" data-name="files">Adjuntar archivos (opcional)<input type="file" name="files" multiple accept="${C.FILE_EXT.map(e => '.' + e).join(',')}"></label>${id ? `<p class="desc" style="margin:8px 0 0">Ya adjuntos: ${C.attachmentsOf(db, ownerType, id).map(a => esc(a.name)).join(', ') || 'ninguno'}. Gestiona los existentes desde la ficha.</p>` : ''}</div>`;
 
 function formSpec(type, o) {
@@ -322,7 +364,7 @@ function formSpec(type, o) {
   const rec = o.id && LISTOF[type] ? byId(LISTOF[type], o.id) : null;
   const r = rec || {}, edit = !!rec, d = today();
   switch (type) {
-    case 'client': return [edit ? 'Editar cliente' : 'Nuevo cliente', `<div class="formgrid">${fld('Nombre', 'name', { value: r.name, req: true, full: true })}${fld('Teléfono', 'phone', { value: r.phone, type: 'tel' })}${fld('Correo', 'email', { value: r.email, type: 'email' })}${area('Notas', 'notes', r.notes)}</div>${fileField('client', r.id)}`, 'Guardar cliente'];
+    case 'client': return [edit ? 'Editar cliente' : 'Nuevo cliente', `<div class="formgrid">${fld('Nombre completo / razón social', 'name', { value: r.name, req: true, full: true })}${sel('Tipo de documento', 'documentType', [['CC','Cédula de ciudadanía'],['CE','Cédula de extranjería'],['NIT','NIT'],['Pasaporte','Pasaporte'],['Otro','Otro']], r.documentType || 'CC')}${fld('Número de documento (opcional)', 'documentNumber', { value: r.documentNumber, attrs: 'autocomplete="off" inputmode="text" maxlength="30"' })}${fld('Celular (opcional)', 'phone', { value: r.phone, type: 'tel' })}${fld('Correo (opcional)', 'email', { value: r.email, type: 'email' })}${area('Notas', 'notes', r.notes)}</div><p class="desc">Puedes identificar al cliente por su cédula o documento. El sistema evita duplicados por número de documento. Si no registras documento, debes indicar celular o correo.</p>${fileField('client', r.id)}`, 'Guardar cliente'];
     case 'service': return [edit ? 'Editar servicio' : 'Nuevo servicio', `<div class="formgrid">${fld('Nombre', 'name', { value: r.name, req: true, full: true })}${fld('Precio', 'price', { value: r.price ?? '', type: 'number', attrs: 'min="0" step="any"', req: true })}${fld('Duración (min)', 'duration', { value: r.duration ?? 30, type: 'number', attrs: 'min="5" step="1"', req: true })}</div>`, 'Guardar servicio'];
     case 'appointment': {
       const sid = r.serviceId || db.services[0]?.id, price = edit ? r.price : (byId('services', sid)?.price || 0);
@@ -339,7 +381,7 @@ function formSpec(type, o) {
       return ['Registrar abono', open.length ? `<div class="formgrid">${sel('Venta pendiente', 'saleId', open.map(s => [s.id, `${clientName(s.clientId)} — ${s.description} · saldo ${money(saleBalance(s))}`, `data-balance="${saleBalance(s)}"`]), pre?.id, true)}${fld('Valor del abono', 'amount', { type: 'number', value: pre ? saleBalance(pre) : '', attrs: 'min="0.01" step="any"', req: true })}${fld('Fecha', 'date', { type: 'date', value: d, req: true })}${sel('Método', 'method', list(C.METHODS), 'Efectivo', true)}</div>` : '<p class="desc">No hay ventas con saldo pendiente.</p>', 'Guardar abono', !open.length];
     }
     case 'movement': return ['Movimiento de inventario', `<div class="formgrid">${sel('Producto', 'productId', db.products.map(p => [p.id, `${p.name} · stock ${p.stock}`]), o.id || db.products[0]?.id, true)}${sel('Tipo', 'type', list(C.MOVE_TYPES), 'Entrada')}${fld('Cantidad', 'quantity', { type: 'number', value: 1, attrs: 'min="0" step="any"', req: true })}${fld('Fecha', 'date', { type: 'date', value: d, req: true })}${fld('Motivo', 'reason', { full: true, attrs: 'placeholder="Compra, venta, devolución, corrección…"' })}</div><p class="desc">Entrada suma; salida y merma descuentan; ajuste establece el stock final indicado.</p>`, 'Guardar movimiento', !db.products.length];
-    case 'user': return [edit ? 'Editar usuario' : 'Nuevo usuario', `<div class="formgrid">${fld('Nombre', 'name', { value: r.name, req: true, full: true })}${sel('Rol', 'role', Object.entries(Cat.ROLES), r.role || 'employee')}${sel('Estado', 'active', [['yes', 'Activo'], ['no', 'Inactivo']], r.active === false ? 'no' : 'yes')}${fld(edit ? 'Nuevo PIN (vacío = conservar)' : 'PIN (4 a 8 dígitos)', 'pin', { type: 'password', full: true, attrs: 'autocomplete="new-password" inputmode="numeric"' })}</div><p class="desc">El PIN se guarda cifrado con sal. Sin inicio de sesión activado, los usuarios sirven para asignar meseros y profesionales.</p>`, 'Guardar usuario'];
+    case 'user': return [edit ? 'Editar usuario' : 'Nuevo usuario', `<div class="formgrid">${fld('Nombre', 'name', { value: r.name, req: true })}${fld('Apellido', 'lastName', { value: r.lastName || '' })}${fld('Celular', 'phone', { value: r.phone || '', type: 'tel' })}${fld('Área / estación de trabajo', 'station', { value: r.station || '', attrs: 'placeholder="Ej. Cocina, bebidas, caja, barbería…"' })}${sel('Rol', 'role', Object.entries(Cat.ROLES), r.role || 'employee')}${fld('Correo del administrador (si aplica)', 'email', { value: r.email || '', type: 'email', full: true })}${sel('Estado', 'active', [['yes', 'Activo'], ['no', 'Inactivo']], r.active === false ? 'no' : 'yes')}${fld(edit ? 'Nueva contraseña (vacía = conservar)' : 'Contraseña administrador (mín. 8)', 'password', { type: 'password', full: true, attrs: 'autocomplete="new-password"' })}${fld(edit ? 'Nuevo PIN (vacío = conservar)' : 'PIN empleado (4 a 8 dígitos)', 'pin', { type: 'password', full: true, attrs: 'autocomplete="new-password" inputmode="numeric"' })}</div><p class="desc">Registra nombre, apellido y celular para que el equipo pueda recibir avisos. Administradores ingresan con correo y contraseña; empleados con PIN.</p>`, 'Guardar usuario'];
     case 'reschedule': { const a = byId('appointments', o.id); return ['Reprogramar cita', `<div class="formgrid">${fld('Nueva fecha', 'date', { type: 'date', value: a.date, req: true })}${fld('Nueva hora', 'time', { type: 'time', value: a.time, req: true })}${workerOpts() ? sel('Profesional', 'workerId', workerOpts(), a.workerId || '', true) : ''}</div><p class="desc">Se revisa que no haya choque de horario. Una cita cancelada o pendiente de reprogramación vuelve a Pendiente.</p>`, 'Reprogramar']; }
     case 'unit': {
       const parents = db.organizationUnits.filter(u => u.kind === 'business' && u.id !== r.id).map(u => [u.id, u.name]);
@@ -379,16 +421,43 @@ async function attachFiles(ownerType, ownerId, files) {
   return { ok, errs };
 }
 const OWNER = { client: 'client', appointment: 'appointment' };
+function reassignUnavailableAppointments(workerId, start = today(), end = '9999-12-31') {
+  const affected = db.appointments.filter(a => a.workerId === +workerId && a.date >= start && a.date <= end && !['Atendida','Cancelada','Pendiente de reprogramación'].includes(a.status) && !C.workerAvailability(db, workerId, a.date, a.time, +(byId('services', a.serviceId)?.duration || 30)).ok);
+  const result = { moved: 0, pending: 0 };
+  for (const a of affected) {
+    const duration = +(byId('services', a.serviceId)?.duration || 30);
+    const replacement = LKAuto.pickWorker(db, { date: a.date, time: a.time, serviceId: a.serviceId }, a.id);
+    if (replacement && C.workerAvailability(db, replacement, a.date, a.time, duration).ok) { a.reassignedFromWorkerId = a.workerId; a.workerId = replacement; a.reassignedAt = new Date().toISOString(); a.reassignmentNote = 'Reasignada por ausencia / cambio de disponibilidad'; result.moved++; }
+    else { a.reassignedFromWorkerId = a.workerId; a.workerId = null; a.status = 'Pendiente de reprogramación'; a.reassignmentNote = 'No se encontró otro profesional disponible'; result.pending++; }
+  }
+  return result;
+}
+
 async function handleForm(form) {
   const type = form.dataset.form, editId = form.dataset.id ? +form.dataset.id : null, back = form.dataset.back || '';
   const raw = {}; for (const [k, v] of new FormData(form).entries()) if (typeof v === 'string') raw[k] = v;
   clearErrors(form);
   if (type === 'login') return doLogin(form, raw);
+  if (type === 'dashboard-settings') { const selected=[...form.querySelectorAll('input[name=widgets]:checked')].map(x=>x.value); if (!selected.length) return toast('Selecciona al menos un elemento para tu resumen.', 'err'); const u=currentUser(); if(u){u.preferences={...(u.preferences||{}),dashboard:{...(u.preferences?.dashboard||{}),widgets:selected}};}else{db.profile.dashboard={...(db.profile.dashboard||{}),widgets:selected};} save(); closeModal(); render(); return toast('Tu panel se actualizó.'); }
+  if (type === 'staff-schedule' || type === 'timeoff' || type === 'company-timeoff') { if (!can('users.manage')) return deny('users.manage'); }
+  if (type === 'staff-schedule') {
+    const u = byId('users', +raw.userId); if (!u) return toast('Empleado no encontrado.', 'err');
+    const days = [...form.querySelectorAll('input[name="days"]:checked')].map(x => +x.value);
+    const validTime = x => /^([01]\d|2[0-3]):[0-5]\d$/.test(x || '');
+    const break2 = !!(raw.break2Start || raw.break2End);
+    if (!days.length || !validTime(raw.start) || !validTime(raw.end) || raw.end <= raw.start || !validTime(raw.breakStart) || !validTime(raw.breakEnd) || raw.breakEnd <= raw.breakStart || raw.breakStart < raw.start || raw.breakEnd > raw.end || (break2 && (!validTime(raw.break2Start) || !validTime(raw.break2End) || raw.break2End <= raw.break2Start || raw.break2Start < raw.start || raw.break2End > raw.end || !(raw.break2End <= raw.breakStart || raw.break2Start >= raw.breakEnd)))) return toast('Revisa los días, el horario y las pausas (deben estar dentro de la jornada y no cruzarse).', 'err');
+    u.schedule = { days, start: raw.start, end: raw.end, breakStart: raw.breakStart, breakEnd: raw.breakEnd, break2Start: raw.break2Start || '', break2End: raw.break2End || '' }; const moved = reassignUnavailableAppointments(u.id); save(); closeModal(); render(); return toast(`Horario actualizado. ${moved.moved} cita(s) reasignada(s) y ${moved.pending} pendiente(s) de reprogramación.`);
+  }
+  if (type === 'timeoff' || type === 'company-timeoff') {
+    const wid = type === 'company-timeoff' ? 'business' : +raw.userId;
+    const r = C.addTimeOff(db, wid, raw.start, raw.end, raw.reason || ''); if (!r.ok) return toast(r.error, 'err'); let moved = {moved:0,pending:0}; if (wid === 'business') { db.appointments.filter(a => a.date >= raw.start && a.date <= raw.end && !['Atendida','Cancelada'].includes(a.status)).forEach(a => { a.status = 'Pendiente de reprogramación'; a.reassignmentNote = 'Cierre de empresa'; moved.pending++; }); } else moved = reassignUnavailableAppointments(wid, raw.start, raw.end); save(); closeModal(); render(); return toast(`Ausencia registrada. ${moved.moved} cita(s) reasignada(s), ${moved.pending} pendiente(s) de reprogramación.`);
+  }
   const need = FORM_PERM[type]; if (need && !can(need)) return deny(need);
   if (type.startsWith('pos-')) return PosUI.handleForm(form, raw, editId);
   if (type === 'reschedule') {
     const t = form.dataset.id ? +form.dataset.id : null, w = raw.workerId === undefined ? undefined : raw.workerId === 'auto' ? 'auto' : raw.workerId ? +raw.workerId : null, a = byId('appointments', t);
     let wid = w; if (w === 'auto' && a) { wid = LKAuto.pickWorker(db, { date: raw.date, time: raw.time, serviceId: a.serviceId }, a.id); if (!wid) return showErrors(form, { workerId: 'No hay profesionales libres en ese horario.' }); }
+    if (wid && !C.workerAvailability(db, wid, raw.date, raw.time, +(byId('services', a.serviceId)?.duration || 30)).ok) return showErrors(form, { workerId: C.workerAvailability(db, wid, raw.date, raw.time, +(byId('services', a.serviceId)?.duration || 30)).reason });
     const r = C.rescheduleAppointment(db, t, { date: raw.date, time: raw.time, workerId: wid }); if (!r.ok) return showErrors(form, { time: r.error }); save(); closeModal(); render(); apptDetail(t); return toast('Cita reprogramada.');
   }
   const files = [...(form.querySelector('input[type=file]')?.files || [])];
@@ -398,13 +467,22 @@ async function handleForm(form) {
   if (type === 'appointment' && r.value.workerId === 'auto') {
     const w = LKAuto.pickWorker(db, { date: r.value.date, time: r.value.time, serviceId: r.value.serviceId }, editId); if (!w) return showErrors(form, { workerId: 'No hay profesionales libres en ese horario.' }); r.value.workerId = w;
   }
+  if (type === 'appointment' && r.value.workerId && r.value.workerId !== 'auto') { const av = C.workerAvailability(db, r.value.workerId, r.value.date, r.value.time, +(byId('services', r.value.serviceId)?.duration || 30)); if (!av.ok) return showErrors(form, { workerId: av.reason }); }
   if (type === 'appointment' && !form.dataset.force) {
     const cf = C.appointmentConflicts(db, r.value, editId);
     if (cf.length) { form.querySelector('#conflict').innerHTML = `<div class="notice warn" role="alert">Ya hay ${cf.length === 1 ? 'una cita' : cf.length + ' citas'} en ese horario (${cf.map(a => esc(clientName(a.clientId)) + ' ' + a.time).join(', ')}). Pulsa de nuevo para guardar de todas formas.</div>`; form.dataset.force = '1'; form.querySelector('[type=submit]').textContent = 'Guardar de todas formas'; return; }
   }
   const submitBtn = form.querySelector('[type=submit]'); submitBtn.disabled = true;
+  const previousOrderStatus = type === 'order' && editId ? byId('orders', editId)?.status : null;
   const res = C.commit(db, type, r.value, editId);
   if (!res.ok) { toast(res.error, 'err'); submitBtn.disabled = false; return; }
+  if (type === 'order' && (!previousOrderStatus || previousOrderStatus !== r.value.status)) {
+    const op = byId('orders', res.id), client = op && byId('clients', op.clientId);
+    const text = `Hola ${client?.name || 'te saludamos'}, el estado de tu encargo «${op?.vehicle || 'pedido'}» cambió a: ${op?.status}. ${op?.detail || ''} · ${db.profile.name}.`;
+    if (client?.phone) db.outbox.push({ id: C.nextId(db), clientId: client.id, kind: 'Estado de pedido', text, status: 'Pendiente de envío', createdAt: new Date().toISOString() });
+    const team = db.users.filter(u => u.active !== false && u.role !== 'admin');
+    team.forEach(u => db.pos.notifications.push({ id: C.nextId(db), orderId: res.id, createdAt: new Date().toISOString(), text: `Encargo ${op?.vehicle || ''}: estado actualizado a ${op?.status}. ${op?.detail || ''}`, read: false, recipientUserId: u.id, targetName: [u.name,u.lastName].filter(Boolean).join(' '), kind: 'operaciones' }));
+  }
   save();
   let msg = 'Guardado.';
   if (files.length && OWNER[type]) {
@@ -478,7 +556,15 @@ function loadShowcaseData() {
 }
 const ACTIONS = {
   go: d => { closeModal(); go(d.page); },
+  'dashboard-customize': () => { const all=[['income','Ingresos de hoy'],['appointments','Citas de hoy'],['clients','Clientes'],['sales','Ventas activas'],['outstanding','Por cobrar'],['inventory','Productos e inventario'],['orders','Encargos activos'],['trend','Gráfico de ingresos · 7 días'],['activity','Registro de actividad'],['upcoming','Próximas citas'],['alerts','Alertas y pendientes']]; const chosen=dashboardConfig().widgets||[]; openModal('Personaliza tu resumen', `<p class="desc">Elige qué información quieres ver al entrar. Puedes cambiarlo cuando quieras.</p><form data-form="dashboard-settings"><div class="dashboard-options">${all.map(([id,label])=>`<label><input type="checkbox" name="widgets" value="${id}" ${chosen.includes(id)?'checked':''}> <span>${label}</span></label>`).join('')}</div><div class="actions"><button type="button" class="btn" data-act="close">Cancelar</button><button type="submit" class="btn primary">Guardar mi panel</button></div></form>`); },
+  'staff-schedule': d => { const u = byId('users', +d.id), sc = u.schedule || {days:[1,2,3,4,5,6],start:'09:00',end:'18:00',breakStart:'13:00',breakEnd:'14:00'}; const labels=['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado']; openModal('Horario laboral · ' + esc([u.name,u.lastName].filter(Boolean).join(' ')), `<form data-form="staff-schedule"><input type="hidden" name="userId" value="${u.id}"><p class="desc">Selecciona los días habituales y define la jornada y la pausa.</p><div class="daychecks">${labels.map((x,i)=>`<label><input type="checkbox" name="days" value="${i}" ${(sc.days||[]).includes(i)?'checked':''}> ${x}</label>`).join('')}</div><div class="formgrid">${fld('Entrada','start',{type:'time',value:sc.start})}${fld('Salida','end',{type:'time',value:sc.end})}${fld('Inicio de pausa','breakStart',{type:'time',value:sc.breakStart})}${fld('Fin de pausa','breakEnd',{type:'time',value:sc.breakEnd})}${fld('Inicio de segunda pausa (opcional)','break2Start',{type:'time',value:sc.break2Start || ''})}${fld('Fin de segunda pausa (opcional)','break2End',{type:'time',value:sc.break2End || ''})}</div><div class="actions"><button type="button" class="btn" data-act="close">Cancelar</button><button class="btn primary" type="submit">Guardar horario</button></div></form>`); },
+  'staff-vacation': d => { const u = byId('users', +d.id); openModal('Vacaciones / permiso · ' + esc([u.name,u.lastName].filter(Boolean).join(' ')), `<form data-form="timeoff"><input type="hidden" name="userId" value="${u.id}"><div class="formgrid">${fld('Desde','start',{type:'date',value:today(),req:true})}${fld('Hasta','end',{type:'date',value:today(),req:true})}${fld('Motivo','reason',{full:true,attrs:'placeholder="Vacaciones, incapacidad, permiso…"'})}</div><div class="actions"><button type="button" class="btn" data-act="close">Cancelar</button><button class="btn primary" type="submit">Registrar ausencia</button></div></form>${(u.vacations||[]).length ? `<h3 style="margin-top:18px">Ausencias registradas</h3>${table(['Desde','Hasta','Motivo',''],u.vacations.map(v=>tr([fmtDate(v.start),fmtDate(v.end),esc(v.reason||'Permiso'),btn('Quitar','remove-timeoff',{id:v.id,scope:'employee',userId:u.id},'small danger')])).join(''))}` : '<p class="desc" style="margin-top:14px">No hay ausencias registradas.</p>'}`); },
+  'business-closure': () => openModal('Cierre o vacaciones de la empresa', `<form data-form="company-timeoff"><div class="formgrid">${fld('Desde','start',{type:'date',value:today(),req:true})}${fld('Hasta','end',{type:'date',value:today(),req:true})}${fld('Motivo','reason',{full:true,attrs:'placeholder="Festivo, vacaciones colectivas, cierre…"'})}</div><div class="actions"><button type="button" class="btn" data-act="close">Cancelar</button><button class="btn primary" type="submit">Guardar cierre</button></div></form>`),
+  'remove-timeoff': d => { const arr = d.scope === 'business' ? db.workforce.businessDaysOff : (db.users.find(u => u.id === +d.userId)?.vacations || db.users.find(u => (u.vacations||[]).some(v=>v.id===+d.id))?.vacations || []); const i = arr.findIndex(v=>v.id===+d.id); if(i>=0){arr.splice(i,1);save();render();toast('Ausencia eliminada.');} },
   close: () => closeModal(),
+  'team-notifications': () => { const items = globalNotifications().slice().reverse(); openModal('Centro de avisos', items.length ? items.map(n => `<section class="notice"><b>${esc(n.targetName || (n.kind === 'cliente' ? 'Cliente' : 'Equipo'))}</b><p style="white-space:pre-line">${esc(fmtStamp(n.createdAt))} · ${esc(n.text)}</p><div class="rowactions">${n.phone && n.allowWhatsApp !== false ? btn('Abrir WhatsApp', 'team-notification-whatsapp', {id:n.id}, 'small primary') : ''}${btn('Marcar leído', 'team-notification-read', {id:n.id}, 'small')}</div></section>`).join('') + `<div class="actions">${btn('Cerrar','close',{},'primary')}</div>` : `<p class="desc">No tienes avisos pendientes.</p><div class="actions">${btn('Cerrar','close',{},'primary')}</div>`); },
+  'team-notification-read': d => { const n = db.pos.notifications.find(x => x.id === +d.id); if (n) n.read = true; save(); closeModal(); render(); },
+  'team-notification-whatsapp': d => { const n = db.pos.notifications.find(x => x.id === +d.id); if (!n || !n.phone) return toast('No hay teléfono registrado para este destinatario.', 'err'); let phone = String(n.phone).replace(/\D/g,''); const ct = Cat.findCountry(db.profile.country); if (ct && ct[1] === 'CO' && phone.length === 10) phone = '57' + phone; if (!phone) return toast('Número de teléfono inválido.', 'err'); window.open(`https://wa.me/${phone}?text=${encodeURIComponent(n.text)}`, '_blank', 'noopener'); n.read = true; n.sentManuallyAt = new Date().toISOString(); save(); closeModal(); render(); toast('WhatsApp se abrió con el mensaje preparado; confirma el envío en la aplicación.'); },
   'cancel-form': () => { const back = $('#mbody form')?.dataset.back; closeModal(); if (back) reopen(back); },
   'new-menu': () => openModal('¿Qué quieres crear?', `<div class="menu-grid">${[['appointment', '▦ Cita', 'agenda'], ['client', '♙ Cliente', 'crm'], ['quote', '▣ Cotización', 'sales'], ['sale', '$ Venta', 'sales'], ['receivable', '$ Abono', 'cash'], ['product', '▤ Producto', 'inventory'], ['order', '▧ Operación', 'operations'], ['service', '✦ Servicio', 'services']].filter(([t, l, m]) => activeModules().has(m) && can(FORM_PERM[t])).map(([t, l]) => ([t, l]) => `<button type="button" data-act="new" data-type="${t}">${l}</button>`).join('')}</div>`),
   new: d => openForm(d.type, { id: d.type === 'movement' && d.id ? +d.id : null, client: d.client ? +d.client : null, back: d.back, date: d.date }),
@@ -514,9 +600,9 @@ const ACTIONS = {
   'cal-nav': d => { const n = +d.dir; calStart = n === 0 ? mondayOf(today()) : (() => { const x = new Date((calStart || mondayOf(today())) + 'T12:00:00'); x.setDate(x.getDate() + 7 * n); return C.isoDate(x); })(); render(); },
   reschedule: d => openForm('reschedule', { id: +d.id }),
   'auth-enable': async () => {
-    const admins = db.users.filter(u => u.role === 'admin' && u.active !== false && u.pinHash);
-    if (!admins.length) return toast('Primero crea un usuario Administrador con PIN.', 'err');
-    if (!await confirmBox({ title: 'Activar inicio de sesión', message: 'Cada persona entrará con su usuario y PIN, y verá solo lo que su rol permite. Es una protección local básica (no sustituye autenticación de servidor).', label: 'Activar' })) return;
+    const admins = db.users.filter(u => u.role === 'admin' && u.active !== false && u.email && u.passwordHash);
+    if (!admins.length) return toast('Crea un administrador con correo y contraseña (mínimo 8 caracteres) antes de activar el acceso.', 'err');
+    if (!await confirmBox({ title: 'Activar inicio de sesión', message: 'Administradores ingresarán con correo y contraseña; empleados con PIN personal. Cada rol verá las funciones autorizadas. Es protección local, no autenticación de servidor.', label: 'Activar' })) return;
     db.auth.enabled = true; try { sessionStorage.removeItem(SESSION_KEY); } catch (e) {} save(); render(); toast('Inicio de sesión activado.');
   },
   'auth-disable': async () => { if (!await confirmBox({ title: 'Desactivar inicio de sesión', message: 'Cualquier persona con acceso al equipo podrá usar la aplicación con todos los permisos.', label: 'Desactivar', danger: true })) return; db.auth.enabled = false; save(); render(); toast('Inicio de sesión desactivado.'); },
@@ -551,7 +637,7 @@ function saveBlobAs(name, blob) { const url = URL.createObjectURL(blob), a = doc
 function downloadCSV(name, headers, rows) { saveBlobAs('lkone-' + name + '-' + today() + '.csv', new Blob(['\ufeff' + [headers, ...rows].map(r => r.map(C.csvCell).join(',')).join('\r\n')], { type: 'text/csv;charset=utf-8' })); }
 function exportCSV(kind) {
   const m = {
-    clients: () => downloadCSV('clientes', ['Nombre', 'Teléfono', 'Correo'], db.clients.map(c => [c.name, c.phone, c.email || ''])),
+    clients: () => downloadCSV('clientes', ['Nombre', 'Tipo documento', 'Número documento', 'Teléfono', 'Correo'], db.clients.map(c => [c.name, c.documentType || '', c.documentNumber || '', c.phone, c.email || ''])),
     sales: () => downloadCSV('ventas', ['Fecha', 'Cliente', 'Concepto', 'Total', 'Pagado', 'Saldo', 'Estado'], db.sales.map(s => [s.date, clientName(s.clientId), s.description, +s.total || 0, +s.paid || 0, saleBalance(s), saleStatus(s)])),
     payments: () => downloadCSV('pagos', ['Fecha', 'Cliente', 'Concepto', 'Monto', 'Método'], db.payments.map(p => [p.date, clientName(p.clientId), p.description || '', +p.amount || 0, p.method || ''])),
     appointments: () => downloadCSV('citas', ['Fecha', 'Hora', 'Cliente', 'Servicio', 'Estado', 'Valor', 'Adjuntos'], db.appointments.map(a => [a.date, a.time, clientName(a.clientId), serviceName(a.serviceId), a.status, +a.price || 0, C.attachmentsOf(db, 'appointment', a.id).length])),
@@ -596,13 +682,14 @@ function applyAppearance() {
   const fonts = { system: 'system-ui,sans-serif', inter: 'Inter,system-ui,sans-serif', serif: 'Georgia,serif', mono: 'ui-monospace,monospace' };
   document.body.style.fontFamily = fonts[a.font] || fonts.system; document.body.style.fontSize = ({compact:'14px',normal:'15px',large:'17px'})[a.scale] || '15px';
   root.dataset.radius = a.radius || 'normal';
+  document.body.classList.toggle('dark-mode', a.mode === 'dark');
 }
 function teamSection() {
   const permRows = [['page.pos', 'Ver LK POS'], ['pos.orders', 'Tomar pedidos'], ['pos.kitchen', 'Vista de cocina'], ['pos.pay', 'Registrar pagos'], ['pos.shift', 'Abrir y cerrar caja'], ['pos.discount', 'Aplicar descuentos'], ['pos.void', 'Anular / cancelar'], ['pos.refund', 'Reembolsos'], ['pos.menu', 'Menú y mesas'], ['pos.reports', 'Reportes POS'], ['inventory.edit', 'Cambiar inventario'], ['delete.records', 'Eliminar registros'], ['settings.profile', 'Configuración'], ['users.manage', 'Usuarios']];
   const roles = Object.keys(Cat.ROLES);
   return `<section class="card"><h3>4. Equipo y permisos</h3><p class="desc">Usuarios y roles. Con el inicio de sesión activado cada persona ve y modifica solo lo que su rol permite. Sin él, la lista sirve para asignar meseros y profesionales.</p>
-${table(['Nombre', 'Rol', 'Estado', 'PIN', ''], db.users.map(u => tr([`<b>${esc(u.name)}</b>`, esc(Cat.ROLES[u.role]), u.active === false ? pill('Inactivo', 'bad') : pill('Activo', 'ok'), u.pinHash ? 'Definido' : '—', acts('user', u.id)])).join(''))}
-<div class="inline-actions">${btn('+ Usuario', 'new', { type: 'user' }, 'primary')}${authOn() ? btn('Desactivar inicio de sesión', 'auth-disable', {}, 'danger') : btn('Activar inicio de sesión con PIN', 'auth-enable')}</div>
+${table(['Nombre', 'Celular', 'Área', 'Rol', 'Estado', 'PIN', ''], db.users.map(u => tr([`<b>${esc([u.name,u.lastName].filter(Boolean).join(' '))}</b>`, esc(u.phone || '—'), esc(u.station || '—'), esc(Cat.ROLES[u.role]), u.active === false ? pill('Inactivo', 'bad') : pill('Activo', 'ok'), (u.role === 'admin' ? (u.email && u.passwordHash ? 'Correo + contraseña' : 'Falta acceso') : (u.pinHash ? 'PIN definido' : 'Sin PIN')), acts('user', u.id)])).join(''))}
+<div class="inline-actions">${btn('+ Usuario', 'new', { type: 'user' }, 'primary')}${authOn() ? btn('Desactivar inicio de sesión', 'auth-disable', {}, 'danger') : btn('Activar acceso por correo y PIN', 'auth-enable')}</div>
 <div class="notice">${authOn() ? 'Inicio de sesión activo.' : 'Inicio de sesión desactivado: todos usan la aplicación como administrador.'} <b>Limitación:</b> los usuarios y PIN (cifrados con sal) viven en los datos del negocio; sin un backend con autenticación, quien tenga acceso al archivo o al navegador puede saltarse esta protección. Ver RESUMEN_TECNICO.md para la arquitectura de producción.</div>
 <h3 style="margin-top:18px">Matriz de permisos por rol</h3><div class="tablewrap"><table><thead><tr><th>Permiso</th>${roles.map(r => `<th>${esc(Cat.ROLES[r])}</th>`).join('')}</tr></thead><tbody>${permRows.map(([k, l]) => `<tr><td>${l}</td>${roles.map(r => `<td>${C.can({ role: r }, k) ? '✓' : '—'}</td>`).join('')}</tr>`).join('')}</tbody></table></div></section>`;
 }
@@ -625,12 +712,13 @@ function settingsPage() {
 <label class="field" data-name="country">País<input name="country" list="dl-country" value="${esc(P.country || '')}" autocomplete="off" placeholder="Escribe para buscar…"><datalist id="dl-country">${Cat.COUNTRIES.map(x => `<option value="${esc(x[0])}"></option>`).join('')}</datalist></label>
 ${sel('Moneda principal', 'currency', Cat.CURRENCIES.map(([c, n]) => [c, `${c} · ${n}`]), P.currency)}${sel('Idioma preferido', 'language', [['es', 'Español'], ['en', 'English'], ['pt', 'Português'], ['fr', 'Français']], P.language)}
 <label class="field" data-name="timezone">Zona horaria<input name="timezone" list="dl-tz" value="${esc(P.timezone || 'UTC')}" autocomplete="off" placeholder="Ej. America/Bogota"><datalist id="dl-tz">${(Intl.supportedValuesOf ? Intl.supportedValuesOf('timeZone') : []).map(z => `<option value="${esc(z)}"></option>`).join('')}</datalist></label>
-${sel('Formato de fecha', 'dateFormat', [['auto', 'AAAA-MM-DD (predeterminado)'], ['DMY', 'DD/MM/AAAA'], ['MDY', 'MM/DD/AAAA'], ['YMD', 'AAAA-MM-DD']], P.dateFormat || 'auto')}${sel('Formato de hora', 'timeFormat', [['24h', '24 horas'], ['12h', '12 horas (a. m. / p. m.)']], P.timeFormat || '24h')}${sel('Estructura de administración', 'accountMode', [['single', 'Una empresa'], ['group', 'Grupo de empresas'], ['both', 'Ambas modalidades']], P.accountMode || 'both')}</div><div class="actions"><button type="submit" class="btn primary">Guardar perfil</button></div></form>
+${sel('Formato de fecha', 'dateFormat', [['auto', 'AAAA-MM-DD (predeterminado)'], ['DMY', 'DD/MM/AAAA'], ['MDY', 'MM/DD/AAAA'], ['YMD', 'AAAA-MM-DD']], P.dateFormat || 'auto')}${sel('Formato de hora', 'timeFormat', [['24h', '24 horas'], ['12h', '12 horas (a. m. / p. m.)']], P.timeFormat || '24h')}${sel('Estructura de administración', 'accountMode', [['single', 'Una empresa'], ['group', 'Grupo de empresas'], ['both', 'Ambas modalidades']], P.accountMode || 'both')}${sel('Producto contratado (modo demostración)', 'productMode', [['suite', 'LUKARIS ONE completo + POS'], ['pos', 'Solo LUKARIS POS']], P.productMode || 'suite')}</div><div class="actions"><button type="submit" class="btn primary">Guardar perfil</button></div></form>
 <div style="margin-top:16px"><b style="font-size:13px">Logotipo</b><div class="inline-actions">${P.logo ? `<img src="${esc(P.logo)}" alt="Logotipo actual" style="height:44px;border:1px solid var(--line);border-radius:8px;padding:3px">` : '<span class="desc" style="margin:0">Sin logotipo.</span>'}<label class="btn">Subir logotipo<input type="file" hidden accept="image/png,image/jpeg,image/webp" data-logo></label>${P.logo ? btn('Quitar', 'logo-remove', {}, 'danger') : ''}</div></div>
 <div style="margin-top:16px"><b style="font-size:13px">Módulos para esta actividad</b><div class="module-grid" style="margin-top:9px">${moduleCatalog.map(([id, l]) => `<label class="module-option"><input type="checkbox" data-module="${id}" ${active.has(id) ? 'checked' : ''}><span>${l}${rec.includes(id) ? ' <span class="pill ok">Recomendado</span>' : ''}</span></label>`).join('')}</div><div class="inline-actions">${btn('Aplicar módulos recomendados', 'apply-recommended')}</div>
 ${!active.has('pos') && (db.pos.tables.length || db.pos.orders.length || db.pos.menu.length) ? '<div class="notice">LK POS está oculto pero conserva sus datos. Actívalo arriba cuando lo necesites.</div>' : ''}<div class="notice">Ocultar un módulo no borra información: solo lo quita del menú. Cambiar la actividad tampoco elimina datos.</div></div></section>
 <section class="card"><h3>2. Personalización visual</h3><p class="desc">Adapta la apariencia de LK ONE a la identidad de tu negocio. Los cambios se guardan en el perfil de esta instalación.</p>
 <div class="formgrid">
+<label class="field">Modo de interfaz<select data-appearance="mode"><option value="light">Claro</option><option value="dark">Oscuro</option></select></label>
 <label class="field">Tema de color<select data-appearance="theme"><option value="emerald">Esmeralda</option><option value="ocean">Azul océano</option><option value="violet">Violeta</option><option value="rose">Rosa</option><option value="slate">Grafito</option><option value="amber">Ámbar</option><option value="indigo">Índigo</option></select></label>
 <label class="field">Tipografía<select data-appearance="font"><option value="system">Moderna del sistema</option><option value="inter">Inter</option><option value="serif">Serif elegante</option><option value="mono">Monoespaciada</option></select></label>
 <label class="field">Tamaño de texto<select data-appearance="scale"><option value="compact">Compacto</option><option value="normal">Normal</option><option value="large">Grande</option></select></label>
@@ -645,13 +733,14 @@ ${can('backup') ? `<div class="inline-actions">${btn('↓ Exportar respaldo JSON
 <div class="inline-actions">${['clients:Clientes', 'appointments:Citas', 'sales:Ventas', 'payments:Pagos', 'products:Productos'].map(x => btn('↓ ' + x.split(':')[1] + ' CSV', 'export-csv', { kind: x.split(':')[0] })).join('')}</div>
 <div class="notice">Importar reemplaza los datos actuales tras pedir confirmación. En modo servidor se guardan además 14 copias diarias en <b>data/backups/</b>.</div></section>
 ${can('backup') ? `<section class="card danger-zone"><h3>Zona de riesgo</h3><p class="desc">Vuelve a los datos de demostración y elimina todos los adjuntos.</p>${btn('Cargar escenario comercial completo', 'load-showcase', {}, 'primary')} ${btn('Restablecer datos básicos', 'reset-data', {}, 'danger')}</section>` : ''}`;
-  document.querySelectorAll('[data-appearance]').forEach(el => { el.value = (P.appearance || {})[el.dataset.appearance] || ({theme:"emerald",font:"system",scale:"normal",radius:"normal"})[el.dataset.appearance]; });
+  document.querySelectorAll('[data-appearance]').forEach(el => { el.value = (P.appearance || {})[el.dataset.appearance] || ({theme:"emerald",mode:"light",font:"system",scale:"normal",radius:"normal"})[el.dataset.appearance]; });
 }
 
 // ================= Eventos y arranque =================
 document.addEventListener('click', e => {
   if (e.target.id === 'back') return closeModal();
   const navBtn = e.target.closest('#nav button'); if (navBtn) { closeModal(); return go(navBtn.dataset.page); }
+  const lm = e.target.closest('[data-login-mode]'); if (lm) { const mode = lm.dataset.loginMode; document.querySelectorAll('[data-login-mode]').forEach(b => b.classList.toggle('on', b === lm)); document.querySelectorAll('#lbody form[data-form=login]').forEach(f => f.hidden = f.dataset.mode !== mode); return; }
   const el = e.target.closest('[data-act]'); if (!el) return;
   const fn = ACTIONS[el.dataset.act]; if (!fn) return;
   const need = ACTION_PERM[el.dataset.act]; if (need && !can(need)) { e.preventDefault(); return deny(need); }
@@ -659,8 +748,24 @@ document.addEventListener('click', e => {
   Promise.resolve(fn(el.dataset, el)).catch(err => { console.error(err); toast('Ocurrió un error: ' + err.message, 'err'); });
 });
 document.addEventListener('submit', e => { const f = e.target.closest('form[data-form]'); if (!f) return; e.preventDefault(); handleForm(f).catch(err => { console.error(err); toast('Ocurrió un error: ' + err.message, 'err'); f.querySelector('[type=submit]')?.removeAttribute('disabled'); }); });
-document.addEventListener('input', e => { const f = e.target.closest('[data-filter]'); if (f) applyFilters(f.closest('section') || document); });
+document.addEventListener('input', e => {
+  const search = e.target.closest('[data-select-search]');
+  if (search) {
+    const select = document.getElementById(search.dataset.selectSearch);
+    if (select) {
+      const query = search.value.trim().toLocaleLowerCase();
+      [...select.options].forEach(option => { option.hidden = !!query && !option.textContent.toLocaleLowerCase().includes(query); });
+      const selected = select.selectedOptions[0];
+      if (query && selected && selected.hidden) select.value = '';
+    }
+  }
+  const f = e.target.closest('[data-filter]'); if (f) applyFilters(f.closest('section') || document);
+});
 document.addEventListener('change', async e => {
+  if (e.target.matches('[data-choice-select]')) {
+    const search = document.querySelector(`[data-select-search="${e.target.id}"]`);
+    if (search) { search.value = ''; [...e.target.options].forEach(option => option.hidden = false); }
+  }
   const t = e.target;
   if (t.matches('[data-appearance]')) { db.profile.appearance = { ...(db.profile.appearance || {}), [t.dataset.appearance]: t.value }; save(); applyAppearance(); toast('Apariencia actualizada.'); return; }
   if (t.matches('[data-filter]')) return applyFilters(t.closest('section') || document);
