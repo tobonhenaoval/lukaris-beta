@@ -1,11 +1,11 @@
 {
   "name": "lukaris",
-  "version": "1.11.0",
+  "version": "1.12.0",
   "private": true,
-  "description": "LK ONE: plataforma de gesti\u00f3n configurable para negocios de distintos sectores y pa\u00edses (beta con backend local).",
+  "description": "LK ONE: plataforma de gestión multisectorial con LK POS (beta con backend local).",
   "scripts": {
     "start": "node server.js",
-    "check": "node --check core.js && node --check app.js && node --check server.js",
+    "check": "node --check catalog.js && node --check core.js && node --check pos-core.js && node --check automation-core.js && node --check app.js && node --check pos-ui.js && node --check server.js",
     "test": "npm run check && node --test"
   },
   "engines": {

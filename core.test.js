@@ -3,10 +3,10 @@ const C = require('../core.js');
 const fresh = () => C.defaultDb();
 const ok = (db, type, raw, editId) => { const v = C.validate(type, raw, db, { editId }); assert.ok(v.ok, JSON.stringify(v.errors)); const r = C.commit(db, type, v.value, editId); assert.ok(r.ok, r.error); return r; };
 
-test('migrar datos de 1.05 / 0.4 sin perder nada y fijar esquema 4', () => {
+test('migrar datos de 1.05 / 0.4 sin perder nada y fijar esquema 5', () => {
   const legacy = { profile: { name: 'Viejo', currency: 'USD' }, clients: [{ id: 7, name: 'A', phone: '1' }], services: [], appointments: [{ id: 3, clientId: 7, serviceId: 1, date: '2026-01-01', time: '09:00' }], payments: [], products: [], orders: [] };
   const db = C.migrate(legacy);
-  assert.strictEqual(db.meta.schemaVersion, 4); assert.strictEqual(db.profile.name, 'Viejo'); assert.strictEqual(db.clients[0].id, 7);
+  assert.strictEqual(db.meta.schemaVersion, 5); assert.strictEqual(db.profile.name, 'Viejo'); assert.strictEqual(db.clients[0].id, 7);
   assert.deepStrictEqual(db.attachments, []); assert.strictEqual(db.appointments[0].status, 'Pendiente'); assert.ok(db.meta.nextId > 7);
   assert.strictEqual(legacy.profile.language, undefined, 'no muta la entrada');
   assert.ok(C.migrate(null).organizationUnits.length === 1);

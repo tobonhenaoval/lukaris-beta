@@ -1,14 +1,52 @@
 'use strict';
-/* LUKARIS 1.06 · interfaz. La lógica de negocio vive en core.js; el guardado, en Store. */
-const C = LukarisCore;
+/* LK ONE 1.12 · interfaz. La lógica de negocio vive en core.js; el guardado, en Store. */
+const C = LukarisCore, Cat = C.Cat;
 const { esc, saleBalance, saleStatus, today, formatBytes } = C;
-let db, page = 'home';
+let db, page = 'home', apptView = 'list', calStart = null;
 const money = n => C.money(n, db.profile);
 const $ = s => document.querySelector(s);
 const byId = (list, id) => db[list].find(x => x.id === id);
 const clientName = id => byId('clients', id)?.name || 'Cliente eliminado';
 const serviceName = id => byId('services', id)?.name || 'Servicio eliminado';
-const T = { home: 'Resumen', appointments: 'Agenda', clients: 'Clientes', commercial: 'Comercial', cash: 'Finanzas', services: 'Servicios', inventory: 'Inventario', work: 'Operaciones', automations: 'Automatizaciones', reports: 'Reportes', settings: 'Configuración' };
+const T = { pos: 'LK POS', home: 'Resumen', appointments: 'Agenda', clients: 'Clientes', commercial: 'Comercial', cash: 'Finanzas', services: 'Servicios', inventory: 'Inventario', work: 'Operaciones', automations: 'Automatizaciones', reports: 'Reportes', settings: 'Configuración' };
+
+// ================= Sesión, permisos y navegación =================
+const SESSION_KEY = 'lkone-session'; let loginFails = 0, lockUntil = 0;
+const authOn = () => !!(db && db.auth && db.auth.enabled);
+function currentUser() {
+  if (!authOn()) return C.ADMIN_ACTOR;
+  let id = null; try { id = +sessionStorage.getItem(SESSION_KEY); } catch (e) {}
+  const u = db.users.find(x => x.id === id && x.active !== false); return u ? { id: u.id, name: u.name, role: u.role } : null;
+}
+const can = perm => { const u = currentUser(); return !!u && C.can(u, perm); };
+const actor = () => currentUser() || { id: -1, name: 'Sin sesión', role: 'none' };
+const NAV = [['home', '⌂', 'Resumen'], ['pos', '◈', 'LK POS'], ['appointments', '▦', 'Agenda'], ['clients', '♙', 'Clientes'], ['commercial', '▣', 'Comercial'], ['cash', '$', 'Finanzas'], ['services', '✦', 'Servicios'], ['inventory', '▤', 'Inventario'], ['work', '▧', 'Operaciones'], ['automations', '✧', 'Automatizaciones'], ['reports', '▥', 'Reportes'], ['settings', '⚙', 'Configuración']];
+function pageVisible(p) {
+  if (p === 'settings') return can('page.settings'); if (p === 'home') return can('page.home');
+  const m = Cat.PAGE_MODULE[p]; return (!m || activeModules().has(m)) && can('page.' + p);
+}
+const firstPage = () => (NAV.find(([p]) => pageVisible(p)) || ['home'])[0];
+function buildNav() { $('#nav').innerHTML = NAV.filter(([p]) => pageVisible(p)).map(([p, i, l]) => `<button type="button" data-page="${p}" class="${p === page ? 'active' : ''}">${i} ${l}</button>`).join(''); }
+function showLogin() {
+  if (!$('#login').hidden) return;
+  const users = db.users.filter(u => u.active !== false && u.pinHash);
+  $('#login').hidden = false;
+  $('#lbody').innerHTML = `<form data-form="login" novalidate>${sel('Usuario', 'userId', users.map(u => [u.id, `${u.name} · ${Cat.ROLES[u.role]}`]), users[0]?.id, true)}${fld('PIN', 'pin', { type: 'password', req: true, full: true, attrs: 'autocomplete="off" inputmode="numeric"' })}<div class="actions"><button type="submit" class="btn primary">Entrar</button></div></form><p class="desc" style="margin:12px 0 0">Protección básica local: no sustituye una autenticación de servidor (ver documentación).</p>`;
+  $('#lbody [name=pin]')?.focus();
+}
+const hideLogin = () => { $('#login').hidden = true; $('#lbody').innerHTML = ''; };
+function doLogin(form, raw) {
+  const now = Date.now(); if (now < lockUntil) return toast(`Demasiados intentos. Espera ${Math.ceil((lockUntil - now) / 1000)} s.`, 'err');
+  const u = db.users.find(x => x.id === +raw.userId && x.active !== false);
+  if (!u || !u.pinHash || Cat.hashPin(String(raw.pin || ''), u.salt) !== u.pinHash) { loginFails++; if (loginFails >= 5) { lockUntil = now + 30000; loginFails = 0; } return showErrors(form, { pin: 'PIN incorrecto.' }); }
+  loginFails = 0; try { sessionStorage.setItem(SESSION_KEY, String(u.id)); } catch (e) {}
+  hideLogin(); resetPos(); page = firstPage(); render(); toast('Bienvenido, ' + u.name + '.');
+}
+const resetPos = () => { try { PosUI.S.orderId = null; PosUI.S.tab = ''; PosUI.S.cat = 0; } catch (e) {} };
+function logout() { try { sessionStorage.removeItem(SESSION_KEY); } catch (e) {} closeModal(); resetPos(); render(); }
+const FORM_PERM = { client: 'edit.records', service: 'edit.records', appointment: 'edit.records', quote: 'edit.records', sale: 'edit.records', order: 'edit.records', receivable: 'edit.records', reschedule: 'edit.records', product: 'inventory.edit', movement: 'inventory.edit', unit: 'settings.profile', user: 'users.manage', profile: 'settings.profile' };
+const ACTION_PERM = { delete: 'delete.records', 'void-sale': 'finance.edit', 'convert-quote': 'edit.records', 'appt-status': 'edit.records', 'export-backup': 'backup', 'load-showcase': 'backup', 'reset-data': 'backup', 'toggle-automation': 'settings.profile', 'auth-enable': 'users.manage', 'auth-disable': 'users.manage', 'apply-recommended': 'settings.profile', 'wa-plan': 'edit.records', 'wa-release': 'edit.records', 'wa-manual': 'edit.records', 'reschedule': 'edit.records' };
+const deny = perm => toast('No tienes permiso para esta acción' + (Cat.PERM_LABELS[perm] ? ' (' + Cat.PERM_LABELS[perm] + ')' : '') + '.', 'err');
 
 // ================= Almacenamiento: servidor local con respaldo en el navegador =================
 const SYNC_KEY = 'lukaris-sync';
@@ -37,14 +75,14 @@ const Store = {
   save() {
     db.meta.updatedAt = new Date().toISOString();
     const ok = this.writeLocal();
-    if (this.mode === 'server') { this.setPending(true); this.schedule(); }
+    if (this.mode === 'server') { this.dirty = true; this.setPending(true); this.schedule(); }
     else this.setState(ok ? '' : 'error', ok ? 'Guardado en este navegador' : 'No se pudo guardar: almacenamiento lleno o bloqueado');
     if (!ok) toast('No se pudo guardar en el navegador (almacenamiento lleno o bloqueado).', 'err');
   },
   schedule(ms = 200) { this.setState('saving', 'Guardando…'); clearTimeout(this.timer); this.timer = setTimeout(() => this.sync(), ms); },
   async sync() {
     if (this.inflight) { this.again = true; return; }
-    this.inflight = true; this.again = false; const force = this.force;
+    this.inflight = true; this.again = false; this.dirty = false; const force = this.force;
     try {
       const r = await this.api('/api/db', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ baseRev: this.rev, force, data: db }) });
       if (r.status === 409) {
@@ -54,10 +92,14 @@ const Store = {
       }
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || 'Error ' + r.status);
       const j = await r.json(); this.rev = j.rev; this.force = false; this.lastSaved = j.savedAt;
-      if (!this.again) { this.setPending(false); this.setState('saved', 'Guardado en el servidor · ' + new Date(j.savedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })); }
+      if (!this.again && !this.dirty) { this.setPending(false); this.setState('saved', 'Guardado en el servidor · ' + new Date(j.savedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })); }
     } catch (e) {
       this.setState('offline', 'Sin conexión: guardado en este navegador'); clearTimeout(this.retry); this.retry = setTimeout(() => this.sync(), 5000);
     } finally { this.inflight = false; if (this.again) { this.again = false; this.schedule(50); } }
+  },
+  async pull(force) {
+    if (this.mode !== 'server' || this.pending || this.inflight || (!force && modalOpen())) return;
+    try { const r = await this.api('/api/db', { timeout: 3000 }); if (!r.ok) return; const j = await r.json(); if (j.data && j.rev !== this.rev && !this.pending && !this.inflight) { db = C.migrate(j.data); this.rev = j.rev; this.writeLocal(); render(); } else if (force) render(); } catch (e) {}
   },
   flush() { if (this.pending && this.mode === 'server') try { fetch('/api/db', { method: 'PUT', keepalive: true, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ baseRev: this.rev, force: this.force, data: db }) }); } catch (e) {} },
   // ---- archivos ----
@@ -112,28 +154,48 @@ function applyFilters(scope) {
   body.querySelector('.noresults')?.remove();
   if (!shown && scope.querySelector('tbody tr[data-q]')) body.insertAdjacentHTML('beforeend', `<tr class="noresults"><td colspan="20" class="empty">Sin resultados.</td></tr>`);
 }
+const fmtDate = s => { if (!/^\d{4}-\d{2}-\d{2}$/.test(String(s || ''))) return s || ''; const [y, m, d] = s.split('-'), f = db.profile.dateFormat; return f === 'DMY' ? `${d}/${m}/${y}` : f === 'MDY' ? `${m}/${d}/${y}` : s; };
+const fmtTime = t => { if (!/^\d{2}:\d{2}$/.test(String(t || '')) || db.profile.timeFormat !== '12h') return t || ''; const [h, m] = t.split(':').map(Number); return `${h % 12 || 12}:${String(m).padStart(2, '0')} ${h < 12 ? 'a. m.' : 'p. m.'}`; };
+const fmtStamp = iso => { const d = new Date(iso); return isNaN(d) ? '' : fmtDate(C.isoDate(d)) + ' ' + fmtTime(String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0')); };
 const pill = (t, c = '') => `<span class="pill ${c}">${esc(t)}</span>`;
 const apptPill = s => pill(s, s === 'Confirmada' || s === 'Atendida' ? 'ok' : s === 'Cancelada' ? 'bad' : 'wait');
+const workerName = id => db.users.find(u => u.id === id)?.name || '';
+const workers = () => db.users.filter(u => u.active !== false && ['employee', 'manager'].includes(u.role));
 const attCount = (type, id) => { const n = C.attachmentsOf(db, type, id).length; return n ? `📎 ${n}` : '—'; };
 
-function go(p) { page = p; document.querySelectorAll('#nav button').forEach(b => b.classList.toggle('active', b.dataset.page === p)); $('#crumb').textContent = T[p]; render(); window.scrollTo(0, 0); }
-function render() { applyAppearance(); $('#topbiz').textContent = db.profile.name; document.title = 'LK ONE · ' + db.profile.name; PAGES[page](); if (page === 'home') backupBanner(); document.querySelectorAll('tr.rowlink').forEach(r => r.tabIndex = 0); }
+function go(p) { if (!pageVisible(p)) p = firstPage(); page = p; $('#crumb').textContent = T[p]; render(); window.scrollTo(0, 0); }
+function render() {
+  applyAppearance(); $('#topbiz').textContent = db.profile.name; document.title = 'LK ONE · ' + db.profile.name;
+  $('#logo').innerHTML = (db.profile.logo && /^data:image\//.test(db.profile.logo) ? `<img src="${esc(db.profile.logo)}" alt="Logotipo">` : '') + 'LK ONE';
+  if (authOn() && !currentUser()) { buildNav(); $('#userbox').innerHTML = ''; $app().innerHTML = ''; showLogin(); return; }
+  if (!pageVisible(page)) page = firstPage();
+  const u = currentUser(); $('#userbox').innerHTML = authOn() ? `<b>${esc(u.name)}</b> · ${esc(Cat.ROLES[u.role])} <button type="button" class="btn small" data-act="logout">Salir</button>` : '';
+  document.body.classList.toggle('pos-mode', page === 'pos'); $('#crumb').textContent = T[page]; buildNav();
+  PAGES[page](); if (page === 'home') backupBanner(); document.querySelectorAll('tr.rowlink').forEach(r => r.tabIndex = 0);
+}
 
 // ================= Páginas =================
 const $app = () => $('#app');
+function posHomeCard() {
+  if (!pageVisible('pos')) return ''; const P = LKPOS, d = today(), rep_ = P.report(db, { from: d, to: d }), sh = P.openShift_(db), occ = db.pos.tables.filter(t => P.tableStatus(db, t).status === 'Ocupada').length;
+  return `<section class="card pos-hero"><div class="eyebrow">LK POS · HOY</div><div class="stats" style="margin:10px 0 0"><div class="stat" style="background:#fff2"><small style="color:#cfeeee">Ventas de hoy</small><strong>${money(rep_.sales)}</strong></div><div class="stat" style="background:#fff2"><small style="color:#cfeeee">Cuentas pagadas</small><strong>${rep_.orders}</strong></div><div class="stat" style="background:#fff2"><small style="color:#cfeeee">Mesas ocupadas</small><strong>${occ}/${db.pos.tables.length}</strong></div><div class="stat" style="background:#fff2"><small style="color:#cfeeee">Caja</small><strong>${sh ? 'Abierta' : 'Cerrada'}</strong></div></div><div class="inline-actions"><button class="btn" data-act="go" data-page="pos">Ir a LK POS</button></div></section>`;
+}
 const PAGES = {
   home() {
     const s = C.summary(db), next = s.upcoming.slice(0, 5), active = db.orders.filter(o => o.status !== 'Entregado').slice(0, 4);
-    $app().innerHTML = head('Panel de control', 'Bienvenido a LK ONE', 'Vista general de la operación de tu negocio.', btn('+ Nuevo registro', 'new-menu', {}, 'primary')) +
+    $app().innerHTML = head('Panel de control', 'Bienvenido a LK ONE', 'Vista general de la operación de tu negocio.', can('edit.records') ? btn('+ Nuevo registro', 'new-menu', {}, 'primary') : '') +
       `<section class="card showcase-hero"><div><span class="eyebrow">LK ONE · PLATAFORMA MULTISECTORIAL</span><h2>Todo tu negocio, conectado en un solo lugar.</h2><p class="desc">Clientes, agenda, ventas, finanzas, inventario, operaciones y automatizaciones en una experiencia adaptable.</p></div><div class="inline-actions"><button class="btn" data-act="go" data-page="automations">Explorar automatizaciones</button><button class="btn primary" data-act="go" data-page="reports">Ver reportes</button></div></section><div class="stats"><div class="stat"><small>Citas de hoy</small><strong>${s.todayApps}</strong></div><div class="stat"><small>Ingresos de hoy</small><strong>${money(s.income)}</strong></div><div class="stat"><small>Clientes registrados</small><strong>${db.clients.length}</strong></div><div class="stat"><small>Productos en inventario</small><strong>${db.products.length}</strong></div><div class="stat"><small>Por cobrar</small><strong>${money(s.outstanding)}</strong></div></div>
-<div class="grid2"><section class="card"><h3>Próximas citas</h3><p class="desc">Hoy y los días siguientes (toca una para ver su detalle)</p>${table(['Fecha', 'Hora', 'Cliente', 'Servicio', 'Estado'], next.map(a => tr([a.date, a.time, esc(clientName(a.clientId)), esc(serviceName(a.serviceId)), apptPill(a.status)], { act: 'appt-detail', id: a.id, cls: a.date === today() ? 'today' : '' })).join(''))}
-<h3 style="margin-top:18px">Operaciones activas</h3>${table(['Fecha', 'Cliente', 'Detalle', 'Estado'], active.map(o => tr([o.date, esc(clientName(o.clientId)), esc(o.detail), pill(o.status, 'wait')], { act: 'edit-row', id: o.id })).join(''))}</section>
-<section class="card"><h3>Módulos del sistema</h3><p class="desc">Un núcleo adaptable a distintas verticales</p><div class="quick">${[['appointments', '▦', 'Agenda'], ['cash', '$', 'Ventas y caja'], ['inventory', '▤', 'Inventario'], ['work', '▧', 'Operaciones'], ['clients', '♙', 'Clientes'], ['services', '✦', 'Servicios'], ['automations', '✧', 'Automatizaciones'], ['reports', '▥', 'Reportes']].map(([p, i, l]) => `<button type="button" data-act="go" data-page="${p}">${i}<b>${l}</b></button>`).join('')}</div>
+${posHomeCard()}<div class="grid2"><section class="card"><h3>Próximas citas</h3><p class="desc">Hoy y los días siguientes (toca una para ver su detalle)</p>${table(['Fecha', 'Hora', 'Cliente', 'Servicio', 'Estado'], next.map(a => tr([fmtDate(a.date), fmtTime(a.time), esc(clientName(a.clientId)), esc(serviceName(a.serviceId)), apptPill(a.status)], { act: 'appt-detail', id: a.id, cls: a.date === today() ? 'today' : '' })).join(''))}
+<h3 style="margin-top:18px">Operaciones activas</h3>${table(['Fecha', 'Cliente', 'Detalle', 'Estado'], active.map(o => tr([fmtDate(o.date), esc(clientName(o.clientId)), esc(o.detail), pill(o.status, 'wait')], { act: 'edit-row', id: o.id })).join(''))}</section>
+<section class="card"><h3>Módulos del sistema</h3><p class="desc">Un núcleo adaptable a distintas verticales</p><div class="quick">${NAV.filter(([p]) => p !== 'home' && p !== 'settings' && pageVisible(p)).map(([p, i, l]) => `<button type="button" data-act="go" data-page="${p}">${i}<b>${l}</b></button>`).join('')}</div>
 <div class="notice">${Store.mode === 'server' ? 'Tus datos se guardan en el servidor local de LK ONE (carpeta <b>data/</b>) y se copian en este navegador.' : 'Modo sin servidor: la información se guarda solo en este navegador. Ejecuta <b>npm start</b> para guardarla en un archivo.'}</div></section></div>`;
   },
   appointments() {
-    const rows = db.appointments.slice().sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time)).map(a => tr([a.date, a.time, esc(clientName(a.clientId)), esc(serviceName(a.serviceId)), money(a.price), apptPill(a.status), attCount('appointment', a.id), acts('appointment', a.id)], { act: 'appt-detail', id: a.id, status: a.status, date: a.date, cls: a.date === today() ? 'today' : '' })).join('');
-    $app().innerHTML = head('Programación', 'Agenda', 'Citas, reservas y reuniones. Toca una cita para ver su ficha y adjuntar archivos.', btn('+ Nueva cita', 'new', { type: 'appointment' }, 'primary')) + `<section class="card" id="scope">${filterBar({ status: C.APPT_STATUS, range: true })}${table(['Fecha', 'Hora', 'Cliente', 'Servicio', 'Valor', 'Estado', 'Adjuntos', ''], rows)}</section>`;
+    const tabs = `<div class="tabs"><button type="button" class="chip ${apptView === 'list' ? 'on' : ''}" data-act="appt-view" data-view="list">Lista</button><button type="button" class="chip ${apptView === 'week' ? 'on' : ''}" data-act="appt-view" data-view="week">Calendario semanal</button></div>`;
+    const headHtml = head('Programación', 'Agenda', 'Citas, reservas y reuniones. Toca una cita para ver su ficha, reprogramarla o adjuntar archivos.', can('edit.records') ? btn('+ Nueva cita', 'new', { type: 'appointment' }, 'primary') : '');
+    if (apptView === 'week') return void ($app().innerHTML = headHtml + tabs + calendarHtml());
+    const rows = db.appointments.slice().sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time)).map(a => tr([fmtDate(a.date), fmtTime(a.time), esc(clientName(a.clientId)), esc(serviceName(a.serviceId)) + (a.workerId ? `<br><small>${esc(workerName(a.workerId))}</small>` : ''), money(a.price), apptPill(a.status), attCount('appointment', a.id), can('edit.records') ? acts('appointment', a.id) : ''], { act: 'appt-detail', id: a.id, status: a.status, date: a.date, cls: a.date === today() ? 'today' : '' })).join('');
+    $app().innerHTML = headHtml + tabs + `<section class="card" id="scope">${filterBar({ status: C.APPT_STATUS, range: true })}${table(['Fecha', 'Hora', 'Cliente', 'Servicio', 'Valor', 'Estado', 'Adjuntos', ''], rows)}</section>`;
   },
   clients() {
     const rows = db.clients.map(c => tr([`<b>${esc(c.name)}</b>`, esc(c.phone || '—'), esc(c.email || '—'), attCount('client', c.id), acts('client', c.id, c.phone ? btn('WhatsApp', 'whatsapp-client', {id:c.id}, 'small') : '')], { act: 'client-detail', id: c.id, q: [c.name, c.phone, c.email].join(' ') })).join('');
@@ -141,8 +203,8 @@ const PAGES = {
   },
   commercial() {
     const act = C.activeSales(db);
-    const qr = db.quotes.map(q => tr([q.date, esc(clientName(q.clientId)), esc(q.description), money(q.amount), `<span class="tagquote">${esc(q.status)}</span>`, q.status === 'Pendiente' ? `<div class="rowactions">${btn('Crear venta', 'convert-quote', { id: q.id }, 'small')}${btn('Editar', 'edit', { type: 'quote', id: q.id }, 'small')}${btn('Eliminar', 'delete', { type: 'quote', id: q.id }, 'small danger')}</div>` : '—'], { status: q.status })).join('');
-    const sr = db.sales.map(s => tr([s.date, esc(clientName(s.clientId)), esc(s.description), money(s.total), money(s.paid), money(saleBalance(s)), `<span class="${s.voided ? 'pill bad' : saleBalance(s) > 0 ? 'tagdue' : 'tagpaid'}">${saleStatus(s)}</span>`, s.voided ? '—' : `<div class="rowactions">${saleBalance(s) > 0 ? btn('Abonar', 'pay-sale', { id: s.id }, 'small') : ''}${btn('Editar', 'edit', { type: 'sale', id: s.id }, 'small')}${btn('Anular', 'void-sale', { id: s.id }, 'small danger')}</div>`], { cls: s.voided ? 'void' : '', status: saleStatus(s) })).join('');
+    const qr = db.quotes.map(q => tr([fmtDate(q.date), esc(clientName(q.clientId)), esc(q.description), money(q.amount), `<span class="tagquote">${esc(q.status)}</span>`, q.status === 'Pendiente' ? `<div class="rowactions">${btn('Crear venta', 'convert-quote', { id: q.id }, 'small')}${btn('Editar', 'edit', { type: 'quote', id: q.id }, 'small')}${btn('Eliminar', 'delete', { type: 'quote', id: q.id }, 'small danger')}</div>` : '—'], { status: q.status })).join('');
+    const sr = db.sales.map(s => tr([fmtDate(s.date), esc(clientName(s.clientId)), esc(s.description), money(s.total), money(s.paid), money(saleBalance(s)), `<span class="${s.voided ? 'pill bad' : saleBalance(s) > 0 ? 'tagdue' : 'tagpaid'}">${saleStatus(s)}</span>`, s.voided ? '—' : `<div class="rowactions">${saleBalance(s) > 0 ? btn('Abonar', 'pay-sale', { id: s.id }, 'small') : ''}${btn('Editar', 'edit', { type: 'sale', id: s.id }, 'small')}${btn('Anular', 'void-sale', { id: s.id }, 'small danger')}</div>`], { cls: s.voided ? 'void' : '', status: saleStatus(s) })).join('');
     $app().innerHTML = head('Actividad comercial', 'Cotizaciones y ventas', 'Crea propuestas, registra ventas y convierte cotizaciones en operaciones cobrables.', btn('+ Cotización', 'new', { type: 'quote' }) + btn('+ Nueva venta', 'new', { type: 'sale' }, 'primary')) +
       `<div class="stats"><div class="stat"><small>Cotizaciones abiertas</small><strong>${db.quotes.filter(q => q.status === 'Pendiente').length}</strong></div><div class="stat"><small>Ventas registradas</small><strong>${act.length}</strong></div><div class="stat"><small>Valor vendido</small><strong>${money(act.reduce((a, s) => a + (+s.total || 0), 0))}</strong></div><div class="stat"><small>Por cobrar</small><strong>${money(act.reduce((a, s) => a + saleBalance(s), 0))}</strong></div></div>
 <section class="card" id="scope"><h3>Cotizaciones</h3><p class="desc">Propuestas pendientes o convertidas en venta.</p>${filterBar({ status: ['Pendiente', 'Convertida'] })}${table(['Fecha', 'Cliente', 'Concepto', 'Valor', 'Estado', 'Acción'], qr)}</section>
@@ -150,7 +212,7 @@ const PAGES = {
   },
   cash() {
     const sum = db.payments.reduce((s, p) => s + (+p.amount || 0), 0), open = C.activeSales(db).filter(s => saleBalance(s) > 0);
-    const pr = db.payments.slice().sort((a, b) => b.date.localeCompare(a.date)).map(p => tr([p.date, esc(clientName(p.clientId)), esc(p.description), esc(p.method || '—'), money(p.amount), btn('Eliminar', 'delete', { type: 'payment', id: p.id }, 'small danger')])).join('');
+    const pr = db.payments.slice().sort((a, b) => b.date.localeCompare(a.date)).map(p => tr([fmtDate(p.date), esc(clientName(p.clientId)), esc(p.description), esc(p.method || '—'), money(p.amount), btn('Eliminar', 'delete', { type: 'payment', id: p.id }, 'small danger')])).join('');
     const dr = open.map(s => tr([esc(clientName(s.clientId)), esc(s.description), money(s.total), money(s.paid), `<b>${money(saleBalance(s))}</b>`, btn('Registrar abono', 'pay-sale', { id: s.id }, 'small')])).join('');
     $app().innerHTML = head('Finanzas', 'Caja y cuentas por cobrar', 'Controla los ingresos reales, los pagos parciales y los saldos pendientes.', btn('+ Registrar abono', 'new', { type: 'receivable' }, 'primary')) +
       `<div class="stats"><div class="stat"><small>Ingresos recibidos</small><strong>${money(sum)}</strong></div><div class="stat"><small>Transacciones</small><strong>${db.payments.length}</strong></div><div class="stat"><small>Cuentas por cobrar</small><strong>${money(open.reduce((a, s) => a + saleBalance(s), 0))}</strong></div><div class="stat"><small>Ventas con saldo</small><strong>${open.length}</strong></div></div>
@@ -162,12 +224,12 @@ const PAGES = {
   },
   inventory() {
     const rows = db.products.map(p => tr([`<b>${esc(p.name)}</b>`, esc(p.sku || '—'), pill(p.stock, p.stock < 5 ? 'wait' : 'ok'), money(p.cost), money(p.price), acts('product', p.id, btn('Movimiento', 'new', { type: 'movement', id: p.id }, 'small'))])).join('');
-    const mv = db.inventoryMovements.slice().reverse().slice(0, 15).map(m => tr([m.date, esc(byId('products', m.productId)?.name || 'Producto'), esc(m.type), m.quantity, esc(m.reason || '—')])).join('');
+    const mv = db.inventoryMovements.slice().reverse().slice(0, 15).map(m => tr([fmtDate(m.date), esc(byId('products', m.productId)?.name || 'Producto'), esc(m.type), m.quantity, esc(m.reason || '—')])).join('');
     $app().innerHTML = head('Productos', 'Inventario', 'Consulta existencias y registra entradas, salidas o ajustes con trazabilidad.', btn('+ Agregar producto', 'new', { type: 'product' }, 'primary') + btn('+ Movimiento', 'new', { type: 'movement' })) +
       `<section class="card" id="scope"><h3>Existencias</h3>${filterBar()}${table(['Producto', 'SKU', 'Stock', 'Costo', 'Precio venta', ''], rows)}</section><section class="card"><h3>Últimos movimientos</h3><p class="desc">Cada movimiento actualiza las existencias del producto.</p>${table(['Fecha', 'Producto', 'Tipo', 'Cantidad', 'Motivo'], mv)}</section>`;
   },
   work() {
-    $app().innerHTML = head('Operaciones', 'Operaciones', 'Trabajos, proyectos, pedidos o solicitudes según tu actividad.', btn('+ Nueva orden', 'new', { type: 'order' }, 'primary')) + `<section class="card" id="scope">${filterBar({ status: C.ORDER_STATUS })}${table(['Fecha', 'Cliente', 'Referencia', 'Trabajo', 'Estado', 'Valor', ''], db.orders.map(o => tr([o.date, esc(clientName(o.clientId)), esc(o.vehicle), esc(o.detail), pill(o.status, o.status === 'Entregado' ? 'ok' : 'wait'), money(o.amount), acts('order', o.id)], { status: o.status })).join(''))}</section>`;
+    $app().innerHTML = head('Operaciones', 'Operaciones', 'Trabajos, proyectos, pedidos o solicitudes según tu actividad.', btn('+ Nueva orden', 'new', { type: 'order' }, 'primary')) + `<section class="card" id="scope">${filterBar({ status: C.ORDER_STATUS })}${table(['Fecha', 'Cliente', 'Referencia', 'Trabajo', 'Estado', 'Valor', ''], db.orders.map(o => tr([fmtDate(o.date), esc(clientName(o.clientId)), esc(o.vehicle), esc(o.detail), pill(o.status, o.status === 'Entregado' ? 'ok' : 'wait'), money(o.amount), acts('order', o.id)], { status: o.status })).join(''))}</section>`;
   },
   automations() {
     const items = [
@@ -178,10 +240,11 @@ const PAGES = {
       ['leadWelcome','Bienvenida a nuevos clientes','Prepara una respuesta inicial para nuevos contactos.','CRM · Atención']
     ];
     const enabled = items.filter(x => db.automations[x[0]]).length;
-    $app().innerHTML = head('Productividad', 'Centro de automatizaciones', 'Configura flujos que reducen tareas repetitivas. En esta beta puedes activar reglas y probar simulaciones; los envíos automáticos reales requieren conectar proveedores.', btn('Probar flujos', 'test-automations', {}, 'primary')) +
-      `<div class="stats"><div class="stat"><small>Flujos disponibles</small><strong>${items.length}</strong></div><div class="stat"><small>Activos</small><strong>${enabled}</strong></div><div class="stat"><small>Canal preparado</small><strong>WhatsApp</strong></div><div class="stat"><small>Estado de conexión</small><strong>Demo</strong></div></div>
+    $app().innerHTML = head('Productividad', 'Centro de automatizaciones', 'Reglas de recordatorio y confirmación de citas. El planificador prepara los mensajes; el envío automático real requiere conectar un proveedor de WhatsApp (ver requisitos abajo).', btn('Probar flujos', 'test-automations', {}, 'primary')) +
+      `<div class="stats"><div class="stat"><small>Flujos disponibles</small><strong>${items.length}</strong></div><div class="stat"><small>Activos</small><strong>${enabled}</strong></div><div class="stat"><small>Canal preparado</small><strong>WhatsApp</strong></div><div class="stat"><small>Estado de conexión</small><strong>${esc(db.integrations.whatsapp.status)}</strong></div></div>
       <div class="automation-grid">${items.map(([id,name,desc,tag]) => `<section class="card automation-card"><div class="automation-top"><span class="automation-icon">✧</span>${db.automations[id] ? pill('Activo','ok') : pill('Inactivo')}</div><h3>${name}</h3><p class="desc">${desc}</p><small class="eyebrow">${tag}</small><div class="actions"><button class="btn ${db.automations[id] ? '' : 'primary'}" data-act="toggle-automation" data-id="${id}">${db.automations[id] ? 'Desactivar' : 'Activar flujo'}</button><button class="btn" data-act="preview-automation" data-id="${id}">Ver ejemplo</button></div></section>`).join('')}</div>
-      <section class="card"><h3>Cómo funcionaría en una cuenta conectada</h3><div class="steps"><div><b>1. Evento</b><p>Una cita se crea, una venta se completa o un producto llega al mínimo.</p></div><div><b>2. Regla</b><p>LK ONE revisa condiciones, horarios, preferencias y permisos.</p></div><div><b>3. Acción</b><p>Se ejecuta el mensaje, tarea o alerta mediante el canal conectado.</p></div><div><b>4. Registro</b><p>Queda historial del resultado para seguimiento y control.</p></div></div><div class="notice">La beta no envía mensajes automáticos ni se conecta todavía a WhatsApp Business API, correo o calendarios externos. Los botones de prueba muestran el comportamiento esperado sin contactar clientes.</div></section>`;
+      ${waSection()}
+      <section class="card"><h3>Cómo funcionaría en una cuenta conectada</h3><div class="steps"><div><b>1. Evento</b><p>Una cita se crea, una venta se completa o un producto llega al mínimo.</p></div><div><b>2. Regla</b><p>LK ONE revisa condiciones, horarios, preferencias y permisos.</p></div><div><b>3. Acción</b><p>Se ejecuta el mensaje, tarea o alerta mediante el canal conectado.</p></div><div><b>4. Registro</b><p>Queda historial del resultado para seguimiento y control.</p></div></div><div class="notice">Esta versión no envía mensajes automáticos ni está conectada a WhatsApp Business API, correo o calendarios externos. El envío manual abre WhatsApp con el mensaje prellenado.</div></section>`;
   },
   reports() {
     const totalSales = C.activeSales(db).reduce((n,x)=>n+(+x.total||0),0), paid = db.payments.reduce((n,x)=>n+(+x.amount||0),0);
@@ -202,6 +265,18 @@ const PAGES = {
   settings() { settingsPage(); }
 };
 
+// ---------- calendario semanal ----------
+const mondayOf = iso => { const d = new Date(iso + 'T12:00:00'), k = (d.getDay() + 6) % 7; d.setDate(d.getDate() - k); return C.isoDate(d); };
+function calendarHtml() {
+  calStart = calStart || mondayOf(today()); const days = [], d = new Date(calStart + 'T12:00:00');
+  for (let i = 0; i < 7; i++) { days.push(C.isoDate(d)); d.setDate(d.getDate() + 1); }
+  const names = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
+  return `<div class="cal-head"><div class="inline-actions" style="margin:0">${btn('‹ Semana anterior', 'cal-nav', { dir: -1 }, 'small')}${btn('Hoy', 'cal-nav', { dir: 0 }, 'small')}${btn('Semana siguiente ›', 'cal-nav', { dir: 1 }, 'small')}</div><b>${fmtDate(days[0])} — ${fmtDate(days[6])}</b></div><div class="cal-grid">${days.map((day, i) => {
+    const ev = db.appointments.filter(a => a.date === day).sort((a, b) => a.time.localeCompare(b.time));
+    return `<div class="cal-day ${day === today() ? 'today' : ''}"><h4><span>${names[i]} ${day.slice(8)}</span>${can('edit.records') ? `<button type="button" class="btn small" data-act="new" data-type="appointment" data-date="${day}" aria-label="Nueva cita el ${day}">+</button>` : ''}</h4>${ev.map(a => `<button type="button" class="cal-ev" data-st="${esc(a.status)}" data-act="appt-detail" data-id="${a.id}"><b>${fmtTime(a.time)}</b> ${esc(clientName(a.clientId))}<br><small>${esc(serviceName(a.serviceId))}${a.workerId ? ' · ' + esc(workerName(a.workerId)) : ''}</small></button>`).join('') || '<small class="desc">Sin citas</small>'}</div>`;
+  }).join('')}</div>`;
+}
+
 // ---------- fichas ----------
 function attachBlock(ownerType, ownerId, readonlyList = false) {
   const list = C.attachmentsOf(db, ownerType, ownerId);
@@ -211,9 +286,9 @@ function attachBlock(ownerType, ownerId, readonlyList = false) {
 }
 function apptDetail(id) {
   const a = byId('appointments', id); if (!a) return;
-  openModal('Cita · ' + a.date + ' ' + a.time, `<dl class="kv"><dt>Cliente</dt><dd><a href="#" data-act="client-detail" data-id="${a.clientId}">${esc(clientName(a.clientId))}</a></dd><dt>Servicio</dt><dd>${esc(serviceName(a.serviceId))}</dd><dt>Valor</dt><dd>${money(a.price)}</dd><dt>Estado</dt><dd>${apptPill(a.status)}</dd>${a.notes ? `<dt>Notas</dt><dd>${esc(a.notes)}</dd>` : ''}</dl>
+  openModal('Cita · ' + fmtDate(a.date) + ' ' + fmtTime(a.time), `<dl class="kv"><dt>Cliente</dt><dd><a href="#" data-act="client-detail" data-id="${a.clientId}">${esc(clientName(a.clientId))}</a></dd><dt>Servicio</dt><dd>${esc(serviceName(a.serviceId))}</dd>${a.workerId ? `<dt>Profesional</dt><dd>${esc(workerName(a.workerId))}</dd>` : ''}${a.rescheduledFrom ? `<dt>Reprogramada</dt><dd>antes: ${esc(fmtDate(a.rescheduledFrom.date))} ${esc(fmtTime(a.rescheduledFrom.time))}</dd>` : ''}<dt>Valor</dt><dd>${money(a.price)}</dd><dt>Estado</dt><dd>${apptPill(a.status)}</dd>${a.notes ? `<dt>Notas</dt><dd>${esc(a.notes)}</dd>` : ''}</dl>
 <b style="font-size:12px">Cambiar estado</b><div class="chips">${C.APPT_STATUS.map(s => `<button type="button" class="chip ${a.status === s ? 'on' : ''}" data-act="appt-status" data-id="${a.id}" data-status="${s}">${s}</button>`).join('')}</div>${attachBlock('appointment', a.id)}
-<div class="actions">${btn('Eliminar', 'delete', { type: 'appointment', id: a.id }, 'danger')}${btn('Editar', 'edit', { type: 'appointment', id: a.id })}${btn('Cerrar', 'close', {}, 'primary')}</div>`, 'appt:' + a.id);
+<div class="actions">${can('delete.records') ? btn('Eliminar', 'delete', { type: 'appointment', id: a.id }, 'danger') : ''}${can('edit.records') ? btn('Reprogramar', 'reschedule', { id: a.id }) + btn('Editar', 'edit', { type: 'appointment', id: a.id }) : ''}${btn('Cerrar', 'close', {}, 'primary')}</div>`, 'appt:' + a.id);
 }
 function clientDetail(id) {
   const c = byId('clients', id); if (!c) return;
@@ -224,11 +299,11 @@ function clientDetail(id) {
 <div class="inline-actions" style="margin:0 0 12px">${btn('+ Cita', 'new', { type: 'appointment', client: id, back: 'client:' + id }, 'small primary')}${btn('+ Cotización', 'new', { type: 'quote', client: id, back: 'client:' + id }, 'small')}${btn('+ Venta', 'new', { type: 'sale', client: id, back: 'client:' + id }, 'small')}${btn('Editar', 'edit', { type: 'client', id }, 'small')}${btn('Eliminar', 'delete', { type: 'client', id }, 'small danger')}</div>
 <div class="stats" style="grid-template-columns:repeat(3,1fr)"><div class="stat"><small>Vendido</small><strong>${money(sold)}</strong></div><div class="stat"><small>Pagado</small><strong>${money(paid)}</strong></div><div class="stat"><small>Saldo</small><strong>${money(due)}</strong></div></div>
 ${attachBlock('client', id)}
-<h3>Citas (${apps.length})</h3>${table(['Fecha', 'Hora', 'Servicio', 'Estado', 'Adj.'], apps.map(a => tr([a.date, a.time, esc(serviceName(a.serviceId)), apptPill(a.status), attCount('appointment', a.id)], { act: 'appt-detail', id: a.id })).join(''))}
+<h3>Citas (${apps.length})</h3>${table(['Fecha', 'Hora', 'Servicio', 'Estado', 'Adj.'], apps.map(a => tr([fmtDate(a.date), fmtTime(a.time), esc(serviceName(a.serviceId)), apptPill(a.status), attCount('appointment', a.id)], { act: 'appt-detail', id: a.id })).join(''))}
 ${apptFiles.length ? `<div class="attach"><h3>Archivos de sus citas</h3>${apptFiles.map(f => `<div class="file"><span class="fi">📎</span><div class="fn"><b>${esc(f.name)}</b><small>Cita del ${esc(f.when)} · ${formatBytes(f.size)}</small></div><div class="fa">${btn('Abrir', 'file-open', { id: f.id }, 'small')}</div></div>`).join('')}</div>` : ''}
-<h3>Cotizaciones</h3>${table(['Fecha', 'Concepto', 'Importe', 'Estado'], quotes.map(q => tr([esc(q.date), esc(q.description), money(q.amount), esc(q.status)])).join(''))}
-<h3>Ventas</h3>${table(['Fecha', 'Concepto', 'Total', 'Saldo', 'Estado'], sales.map(s => tr([esc(s.date), esc(s.description), money(s.total), money(saleBalance(s)), saleStatus(s)])).join(''))}
-<h3>Pagos</h3>${table(['Fecha', 'Concepto', 'Monto'], pays.map(p => tr([esc(p.date), esc(p.description), money(p.amount)])).join(''))}<div class="actions">${btn('Cerrar', 'close', {}, 'primary')}</div>`, 'client:' + id);
+<h3>Cotizaciones</h3>${table(['Fecha', 'Concepto', 'Importe', 'Estado'], quotes.map(q => tr([esc(fmtDate(q.date)), esc(q.description), money(q.amount), esc(q.status)])).join(''))}
+<h3>Ventas</h3>${table(['Fecha', 'Concepto', 'Total', 'Saldo', 'Estado'], sales.map(s => tr([esc(fmtDate(s.date)), esc(s.description), money(s.total), money(saleBalance(s)), saleStatus(s)])).join(''))}
+<h3>Pagos</h3>${table(['Fecha', 'Concepto', 'Monto'], pays.map(p => tr([esc(fmtDate(p.date)), esc(p.description), money(p.amount)])).join(''))}<div class="actions">${btn('Cerrar', 'close', {}, 'primary')}</div>`, 'client:' + id);
 }
 function reopen(back) { const [k, id] = String(back || '').split(':'); if (k === 'client') clientDetail(+id); else if (k === 'appt') apptDetail(+id); }
 
@@ -239,10 +314,11 @@ const sel = (label, name, options, value, full = false) => `<label class="field 
 const list = a => a.map(x => [x, x]);
 const clientOpts = () => db.clients.map(c => [c.id, c.name]);
 const NEEDS_CLIENT = ['appointment', 'quote', 'sale', 'order'];
+const workerOpts = () => workers().length ? [['', 'Sin asignar'], ['auto', 'Asignar automáticamente (equilibrado)'], ...workers().map(u => [u.id, u.name])] : null;
 const fileField = (ownerType, id) => `<div class="attach" style="margin-top:14px"><label class="field" data-name="files">Adjuntar archivos (opcional)<input type="file" name="files" multiple accept="${C.FILE_EXT.map(e => '.' + e).join(',')}"></label>${id ? `<p class="desc" style="margin:8px 0 0">Ya adjuntos: ${C.attachmentsOf(db, ownerType, id).map(a => esc(a.name)).join(', ') || 'ninguno'}. Gestiona los existentes desde la ficha.</p>` : ''}</div>`;
 
 function formSpec(type, o) {
-  const LISTOF = { client: 'clients', service: 'services', appointment: 'appointments', product: 'products', order: 'orders', quote: 'quotes', sale: 'sales', unit: 'organizationUnits' };
+  const LISTOF = { user: 'users', client: 'clients', service: 'services', appointment: 'appointments', product: 'products', order: 'orders', quote: 'quotes', sale: 'sales', unit: 'organizationUnits' };
   const rec = o.id && LISTOF[type] ? byId(LISTOF[type], o.id) : null;
   const r = rec || {}, edit = !!rec, d = today();
   switch (type) {
@@ -250,9 +326,9 @@ function formSpec(type, o) {
     case 'service': return [edit ? 'Editar servicio' : 'Nuevo servicio', `<div class="formgrid">${fld('Nombre', 'name', { value: r.name, req: true, full: true })}${fld('Precio', 'price', { value: r.price ?? '', type: 'number', attrs: 'min="0" step="any"', req: true })}${fld('Duración (min)', 'duration', { value: r.duration ?? 30, type: 'number', attrs: 'min="5" step="1"', req: true })}</div>`, 'Guardar servicio'];
     case 'appointment': {
       const sid = r.serviceId || db.services[0]?.id, price = edit ? r.price : (byId('services', sid)?.price || 0);
-      return [edit ? 'Editar cita' : 'Nueva cita', `<div class="formgrid">${sel('Cliente', 'clientId', clientOpts(), r.clientId || o.client || db.clients[0]?.id, true)}${sel('Servicio', 'serviceId', db.services.map(s => [s.id, `${s.name} — ${money(s.price)}`]), sid, true)}${fld('Fecha', 'date', { type: 'date', value: r.date || d, req: true })}${fld('Hora', 'time', { type: 'time', value: r.time || '09:00', req: true })}${sel('Estado', 'status', list(C.APPT_STATUS), r.status || 'Confirmada')}${fld('Valor', 'price', { type: 'number', value: price, attrs: 'min="0" step="any"', req: true })}${area('Notas', 'notes', r.notes)}</div><div id="conflict"></div>${fileField('appointment', r.id)}`, 'Guardar cita'];
+      return [edit ? 'Editar cita' : 'Nueva cita', `<div class="formgrid">${sel('Cliente', 'clientId', clientOpts(), r.clientId || o.client || db.clients[0]?.id, true)}${sel('Servicio', 'serviceId', db.services.map(s => [s.id, `${s.name} — ${money(s.price)}`]), sid, true)}${fld('Fecha', 'date', { type: 'date', value: r.date || o.date || d, req: true })}${fld('Hora', 'time', { type: 'time', value: r.time || '09:00', req: true })}${workerOpts() ? sel('Profesional', 'workerId', workerOpts(), r.workerId || '') : ''}${sel('Estado', 'status', list(C.APPT_STATUS), r.status || 'Confirmada')}${fld('Valor', 'price', { type: 'number', value: price, attrs: 'min="0" step="any"', req: true })}${area('Notas', 'notes', r.notes)}</div><div id="conflict"></div>${fileField('appointment', r.id)}`, 'Guardar cita'];
     }
-    case 'product': return [edit ? 'Editar producto' : 'Agregar producto', `<div class="formgrid">${fld('Nombre', 'name', { value: r.name, req: true, full: true })}${fld('SKU / código', 'sku', { value: r.sku })}${edit ? `<label class="field">Existencias<input value="${r.stock}" disabled></label>` : fld('Existencias', 'stock', { type: 'number', value: 0, attrs: 'min="0" step="1"' })}${fld('Costo', 'cost', { type: 'number', value: r.cost ?? 0, attrs: 'min="0" step="any"' })}${fld('Precio venta', 'price', { type: 'number', value: r.price ?? 0, attrs: 'min="0" step="any"' })}</div>${edit ? '<p class="desc">Las existencias se cambian con movimientos de inventario para conservar la trazabilidad.</p>' : ''}`, 'Guardar producto'];
+    case 'product': return [edit ? 'Editar producto' : 'Agregar producto', `<div class="formgrid">${fld('Nombre', 'name', { value: r.name, req: true, full: true })}${fld('SKU / código', 'sku', { value: r.sku })}${edit ? `<label class="field">Existencias<input value="${r.stock}" disabled></label>` : fld('Existencias', 'stock', { type: 'number', value: 0, attrs: 'min="0" step="any"' })}${fld('Unidad (und, kg, l…)', 'unit', { value: r.unit || 'und' })}${fld('Alerta de stock mínimo', 'minStock', { type: 'number', value: r.minStock ?? 0, attrs: 'min="0" step="any"' })}${fld('Costo', 'cost', { type: 'number', value: r.cost ?? 0, attrs: 'min="0" step="any"' })}${fld('Precio venta', 'price', { type: 'number', value: r.price ?? 0, attrs: 'min="0" step="any"' })}</div>${edit ? '<p class="desc">Las existencias se cambian con movimientos de inventario para conservar la trazabilidad.</p>' : ''}`, 'Guardar producto'];
     case 'order': return [edit ? 'Editar operación' : 'Nueva operación', `<div class="formgrid">${sel('Cliente', 'clientId', clientOpts(), r.clientId || o.client, true)}${fld('Referencia / activo', 'vehicle', { value: r.vehicle, req: true, full: true, attrs: 'placeholder="Código, equipo, pedido o referencia"' })}${area('Trabajo solicitado', 'detail', r.detail)}${fld('Fecha', 'date', { type: 'date', value: r.date || d, req: true })}${fld('Valor estimado', 'amount', { type: 'number', value: r.amount ?? '', attrs: 'min="0" step="any"', req: true })}${sel('Estado', 'status', list(C.ORDER_STATUS), r.status || 'Recibido', true)}</div>`, 'Guardar operación'];
     case 'quote': return [edit ? 'Editar cotización' : 'Nueva cotización', `<div class="formgrid">${sel('Cliente', 'clientId', clientOpts(), r.clientId || o.client, true)}${fld('Concepto / propuesta', 'description', { value: r.description, req: true, full: true })}${fld('Valor cotizado', 'amount', { type: 'number', value: r.amount ?? '', attrs: 'min="0.01" step="any"', req: true })}${fld('Fecha', 'date', { type: 'date', value: r.date || d, req: true })}${fld('Válida hasta', 'validUntil', { type: 'date', value: r.validUntil || C.addDays(15) })}</div>`, 'Guardar cotización'];
     case 'sale': return edit
@@ -262,7 +338,9 @@ function formSpec(type, o) {
       const open = C.activeSales(db).filter(s => saleBalance(s) > 0), pre = open.find(s => s.id === o.saleId) || open[0];
       return ['Registrar abono', open.length ? `<div class="formgrid">${sel('Venta pendiente', 'saleId', open.map(s => [s.id, `${clientName(s.clientId)} — ${s.description} · saldo ${money(saleBalance(s))}`, `data-balance="${saleBalance(s)}"`]), pre?.id, true)}${fld('Valor del abono', 'amount', { type: 'number', value: pre ? saleBalance(pre) : '', attrs: 'min="0.01" step="any"', req: true })}${fld('Fecha', 'date', { type: 'date', value: d, req: true })}${sel('Método', 'method', list(C.METHODS), 'Efectivo', true)}</div>` : '<p class="desc">No hay ventas con saldo pendiente.</p>', 'Guardar abono', !open.length];
     }
-    case 'movement': return ['Movimiento de inventario', `<div class="formgrid">${sel('Producto', 'productId', db.products.map(p => [p.id, `${p.name} · stock ${p.stock}`]), o.id || db.products[0]?.id, true)}${sel('Tipo', 'type', list(C.MOVE_TYPES), 'Entrada')}${fld('Cantidad', 'quantity', { type: 'number', value: 1, attrs: 'min="0" step="1"', req: true })}${fld('Fecha', 'date', { type: 'date', value: d, req: true })}${fld('Motivo', 'reason', { full: true, attrs: 'placeholder="Compra, venta, devolución, corrección…"' })}</div><p class="desc">Entrada suma; salida descuenta; ajuste establece el stock final indicado.</p>`, 'Guardar movimiento', !db.products.length];
+    case 'movement': return ['Movimiento de inventario', `<div class="formgrid">${sel('Producto', 'productId', db.products.map(p => [p.id, `${p.name} · stock ${p.stock}`]), o.id || db.products[0]?.id, true)}${sel('Tipo', 'type', list(C.MOVE_TYPES), 'Entrada')}${fld('Cantidad', 'quantity', { type: 'number', value: 1, attrs: 'min="0" step="any"', req: true })}${fld('Fecha', 'date', { type: 'date', value: d, req: true })}${fld('Motivo', 'reason', { full: true, attrs: 'placeholder="Compra, venta, devolución, corrección…"' })}</div><p class="desc">Entrada suma; salida y merma descuentan; ajuste establece el stock final indicado.</p>`, 'Guardar movimiento', !db.products.length];
+    case 'user': return [edit ? 'Editar usuario' : 'Nuevo usuario', `<div class="formgrid">${fld('Nombre', 'name', { value: r.name, req: true, full: true })}${sel('Rol', 'role', Object.entries(Cat.ROLES), r.role || 'employee')}${sel('Estado', 'active', [['yes', 'Activo'], ['no', 'Inactivo']], r.active === false ? 'no' : 'yes')}${fld(edit ? 'Nuevo PIN (vacío = conservar)' : 'PIN (4 a 8 dígitos)', 'pin', { type: 'password', full: true, attrs: 'autocomplete="new-password" inputmode="numeric"' })}</div><p class="desc">El PIN se guarda cifrado con sal. Sin inicio de sesión activado, los usuarios sirven para asignar meseros y profesionales.</p>`, 'Guardar usuario'];
+    case 'reschedule': { const a = byId('appointments', o.id); return ['Reprogramar cita', `<div class="formgrid">${fld('Nueva fecha', 'date', { type: 'date', value: a.date, req: true })}${fld('Nueva hora', 'time', { type: 'time', value: a.time, req: true })}${workerOpts() ? sel('Profesional', 'workerId', workerOpts(), a.workerId || '', true) : ''}</div><p class="desc">Se revisa que no haya choque de horario. Una cita cancelada o pendiente de reprogramación vuelve a Pendiente.</p>`, 'Reprogramar']; }
     case 'unit': {
       const parents = db.organizationUnits.filter(u => u.kind === 'business' && u.id !== r.id).map(u => [u.id, u.name]);
       return [edit ? 'Editar empresa o sucursal' : 'Agregar empresa o sucursal', `<div class="formgrid">${fld('Nombre', 'name', { value: r.name, req: true, full: true })}${sel('Tipo', 'kind', [['business', 'Empresa independiente'], ['branch', 'Sucursal de una empresa']], r.kind || 'business')}${sel('Empresa principal (solo sucursales)', 'parentId', [['', '—'], ...parents], r.parentId || '')}</div>`, 'Guardar'];
@@ -270,6 +348,7 @@ function formSpec(type, o) {
   }
 }
 function openForm(type, o = {}) {
+  const perm = FORM_PERM[type]; if (perm && !can(perm)) return deny(perm);
   if (NEEDS_CLIENT.includes(type) && !db.clients.length) { toast('Primero crea un cliente.', 'err'); return openForm('client', { back: o.back }); }
   if (type === 'appointment' && !db.services.length) { toast('Primero crea un servicio.', 'err'); return openForm('service'); }
   if (type === 'movement' && !db.products.length) { toast('Primero agrega un producto.', 'err'); return openForm('product'); }
@@ -304,10 +383,21 @@ async function handleForm(form) {
   const type = form.dataset.form, editId = form.dataset.id ? +form.dataset.id : null, back = form.dataset.back || '';
   const raw = {}; for (const [k, v] of new FormData(form).entries()) if (typeof v === 'string') raw[k] = v;
   clearErrors(form);
+  if (type === 'login') return doLogin(form, raw);
+  const need = FORM_PERM[type]; if (need && !can(need)) return deny(need);
+  if (type.startsWith('pos-')) return PosUI.handleForm(form, raw, editId);
+  if (type === 'reschedule') {
+    const t = form.dataset.id ? +form.dataset.id : null, w = raw.workerId === undefined ? undefined : raw.workerId === 'auto' ? 'auto' : raw.workerId ? +raw.workerId : null, a = byId('appointments', t);
+    let wid = w; if (w === 'auto' && a) { wid = LKAuto.pickWorker(db, { date: raw.date, time: raw.time, serviceId: a.serviceId }, a.id); if (!wid) return showErrors(form, { workerId: 'No hay profesionales libres en ese horario.' }); }
+    const r = C.rescheduleAppointment(db, t, { date: raw.date, time: raw.time, workerId: wid }); if (!r.ok) return showErrors(form, { time: r.error }); save(); closeModal(); render(); apptDetail(t); return toast('Cita reprogramada.');
+  }
   const files = [...(form.querySelector('input[type=file]')?.files || [])];
   const r = C.validate(type, raw, db, { editId }), errs = { ...r.errors }, fe = files.map(C.validateFile).filter(Boolean);
   if (fe.length) errs.files = fe.join(' ');
   if (Object.keys(errs).length) return showErrors(form, errs);
+  if (type === 'appointment' && r.value.workerId === 'auto') {
+    const w = LKAuto.pickWorker(db, { date: r.value.date, time: r.value.time, serviceId: r.value.serviceId }, editId); if (!w) return showErrors(form, { workerId: 'No hay profesionales libres en ese horario.' }); r.value.workerId = w;
+  }
   if (type === 'appointment' && !form.dataset.force) {
     const cf = C.appointmentConflicts(db, r.value, editId);
     if (cf.length) { form.querySelector('#conflict').innerHTML = `<div class="notice warn" role="alert">Ya hay ${cf.length === 1 ? 'una cita' : cf.length + ' citas'} en ese horario (${cf.map(a => esc(clientName(a.clientId)) + ' ' + a.time).join(', ')}). Pulsa de nuevo para guardar de todas formas.</div>`; form.dataset.force = '1'; form.querySelector('[type=submit]').textContent = 'Guardar de todas formas'; return; }
@@ -325,7 +415,7 @@ async function handleForm(form) {
 }
 
 // ================= Acciones (todos los botones pasan por aquí) =================
-const LABEL = { client: 'este cliente', service: 'este servicio', appointment: 'esta cita', product: 'este producto', order: 'esta operación', quote: 'esta cotización', payment: 'este pago', unit: 'esta empresa o sucursal' };
+const LABEL = { user: 'este usuario', client: 'este cliente', service: 'este servicio', appointment: 'esta cita', product: 'este producto', order: 'esta operación', quote: 'esta cotización', payment: 'este pago', unit: 'esta empresa o sucursal' };
 async function openFile(id, download) {
   const a = db.attachments.find(x => x.id === id); if (!a) return toast('El adjunto ya no existe.', 'err');
   try {
@@ -390,8 +480,8 @@ const ACTIONS = {
   go: d => { closeModal(); go(d.page); },
   close: () => closeModal(),
   'cancel-form': () => { const back = $('#mbody form')?.dataset.back; closeModal(); if (back) reopen(back); },
-  'new-menu': () => openModal('¿Qué quieres crear?', `<div class="menu-grid">${[['appointment', '▦ Cita'], ['client', '♙ Cliente'], ['quote', '▣ Cotización'], ['sale', '$ Venta'], ['receivable', '$ Abono'], ['product', '▤ Producto'], ['order', '▧ Operación'], ['service', '✦ Servicio']].map(([t, l]) => `<button type="button" data-act="new" data-type="${t}">${l}</button>`).join('')}</div>`),
-  new: d => openForm(d.type, { id: d.type === 'movement' && d.id ? +d.id : null, client: d.client ? +d.client : null, back: d.back }),
+  'new-menu': () => openModal('¿Qué quieres crear?', `<div class="menu-grid">${[['appointment', '▦ Cita', 'agenda'], ['client', '♙ Cliente', 'crm'], ['quote', '▣ Cotización', 'sales'], ['sale', '$ Venta', 'sales'], ['receivable', '$ Abono', 'cash'], ['product', '▤ Producto', 'inventory'], ['order', '▧ Operación', 'operations'], ['service', '✦ Servicio', 'services']].filter(([t, l, m]) => activeModules().has(m) && can(FORM_PERM[t])).map(([t, l]) => ([t, l]) => `<button type="button" data-act="new" data-type="${t}">${l}</button>`).join('')}</div>`),
+  new: d => openForm(d.type, { id: d.type === 'movement' && d.id ? +d.id : null, client: d.client ? +d.client : null, back: d.back, date: d.date }),
   edit: d => { const id = +d.id, back = currentDetail === (d.type === 'client' ? 'client:' : 'appt:') + id ? currentDetail : ''; openForm(d.type, { id, back }); },
   'edit-row': d => openForm('order', { id: +d.id }),
   delete: async d => {
@@ -419,6 +509,23 @@ const ACTIONS = {
   'toggle-automation': d => { if (!Object.prototype.hasOwnProperty.call(db.automations,d.id)) return; db.automations[d.id] = !db.automations[d.id]; save(); render(); toast(db.automations[d.id] ? 'Flujo activado en modo de demostración.' : 'Flujo desactivado.'); },
   'preview-automation': d => { const labels = {appointmentReminder:'Ejemplo: 24 horas antes de la cita, preparar recordatorio y solicitud de confirmación.',followup:'Ejemplo: al marcar una venta como pagada, preparar un mensaje de agradecimiento.',birthday:'Ejemplo: detectar cumpleaños y preparar un saludo con beneficio.',lowStock:'Ejemplo: cuando el stock sea igual o menor al mínimo, generar una alerta al responsable.',leadWelcome:'Ejemplo: al registrar un cliente nuevo, preparar mensaje de bienvenida.'}; toast(labels[d.id] || 'Vista previa no disponible.'); },
   'test-automations': () => { const active = Object.values(db.automations).filter(Boolean).length; toast(`${active} flujo(s) activo(s). Prueba simulada completada; no se enviaron mensajes.`); },
+  logout: () => logout(),
+  'appt-view': d => { apptView = d.view === 'week' ? 'week' : 'list'; render(); },
+  'cal-nav': d => { const n = +d.dir; calStart = n === 0 ? mondayOf(today()) : (() => { const x = new Date((calStart || mondayOf(today())) + 'T12:00:00'); x.setDate(x.getDate() + 7 * n); return C.isoDate(x); })(); render(); },
+  reschedule: d => openForm('reschedule', { id: +d.id }),
+  'auth-enable': async () => {
+    const admins = db.users.filter(u => u.role === 'admin' && u.active !== false && u.pinHash);
+    if (!admins.length) return toast('Primero crea un usuario Administrador con PIN.', 'err');
+    if (!await confirmBox({ title: 'Activar inicio de sesión', message: 'Cada persona entrará con su usuario y PIN, y verá solo lo que su rol permite. Es una protección local básica (no sustituye autenticación de servidor).', label: 'Activar' })) return;
+    db.auth.enabled = true; try { sessionStorage.removeItem(SESSION_KEY); } catch (e) {} save(); render(); toast('Inicio de sesión activado.');
+  },
+  'auth-disable': async () => { if (!await confirmBox({ title: 'Desactivar inicio de sesión', message: 'Cualquier persona con acceso al equipo podrá usar la aplicación con todos los permisos.', label: 'Desactivar', danger: true })) return; db.auth.enabled = false; save(); render(); toast('Inicio de sesión desactivado.'); },
+  'apply-recommended': async () => { if (!await confirmBox({ title: 'Módulos recomendados', message: 'Se activarán los módulos recomendados para la actividad seleccionada. No se borra ningún dato; los módulos ocultos conservan su información.', label: 'Aplicar' })) return; db.profile.modulesSet = false; db.profile.modules = []; save(); render(); toast('Módulos recomendados aplicados.'); },
+  'logo-remove': () => { db.profile.logo = ''; save(); render(); toast('Logotipo eliminado.'); },
+  'wa-plan': () => { const made = LKAuto.planReminders(db); save(); render(); toast(made.length ? `${made.length} mensaje(s) quedaron en la cola «Pendiente de envío».` : 'No hay recordatorios nuevos por planificar.'); },
+  'wa-release': () => { const r = LKAuto.releaseUnconfirmed(db); save(); render(); toast(r.length ? `${r.length} turno(s) liberado(s) por falta de confirmación.` : 'Ningún turno cumple la regla de liberación (30 min sin confirmar tras un envío real).'); },
+  'wa-manual': d => { const m = db.outbox.find(x => x.id === +d.id), c = m && byId('clients', m.clientId); if (!m || !c || !c.phone) return toast('El cliente no tiene teléfono registrado.', 'err'); let phone = c.phone.replace(/\D/g, ''); const ct = Cat.findCountry(db.profile.country); if (ct && phone.length === 10 && ct[1] === 'CO') phone = '57' + phone; window.open(`https://wa.me/${phone}?text=${encodeURIComponent(m.text)}`, '_blank', 'noopener'); m.status = 'Enviado manualmente'; m.sentAt = new Date().toISOString(); save(); render(); toast('Marcado como enviado manualmente. Registra la respuesta del cliente en la cita.'); },
+  'wa-discard': d => { const m = db.outbox.find(x => x.id === +d.id); if (m) { m.status = 'Cancelado'; save(); render(); } },
   'export-backup': () => exportBackup(),
   'export-csv': d => exportCSV(d.kind),
   'load-showcase': async () => {
@@ -433,16 +540,15 @@ const ACTIONS = {
   }
 };
 // ================= Configuración, respaldo y CSV =================
-const moduleCatalog = [['crm', 'Clientes y CRM'], ['agenda', 'Agenda y reservas'], ['sales', 'Ventas y pedidos'], ['cash', 'Caja y finanzas'], ['inventory', 'Inventario'], ['services', 'Productos y servicios'], ['operations', 'Operaciones y proyectos'], ['team', 'Equipo y permisos'], ['subscriptions', 'Suscripciones'], ['marketing', 'Marketing y fidelización'], ['reports', 'Reportes y analítica']];
-const recommendedByType = { beauty: ['crm', 'agenda', 'services', 'cash', 'inventory', 'marketing', 'reports'], retail: ['crm', 'sales', 'cash', 'inventory', 'reports'], services: ['crm', 'agenda', 'services', 'cash', 'reports'], food: ['crm', 'agenda', 'sales', 'cash', 'inventory', 'reports'], health: ['crm', 'agenda', 'services', 'cash', 'reports'], education: ['crm', 'agenda', 'services', 'cash', 'reports'], construction: ['crm', 'sales', 'cash', 'inventory', 'operations', 'team', 'reports'], automotive: ['crm', 'agenda', 'services', 'cash', 'inventory', 'operations', 'reports'], logistics: ['crm', 'sales', 'inventory', 'operations', 'team', 'reports'], hospitality: ['crm', 'agenda', 'sales', 'cash', 'operations', 'reports'], digital: ['crm', 'sales', 'subscriptions', 'marketing', 'reports'], other: ['crm', 'sales', 'cash', 'operations', 'reports'] };
-const recommendedModules = () => recommendedByType[db.profile.type] || recommendedByType.other;
+const moduleCatalog = Cat.MODULES;
+const recommendedModules = () => C.recommendedModules(db.profile);
 const activeModules = () => new Set(db.profile.modulesSet ? db.profile.modules : recommendedModules());
-function toggleModule(id, on) { const s = activeModules(); on ? s.add(id) : s.delete(id); db.profile.modules = [...s]; db.profile.modulesSet = true; save(); render(); }
+function toggleModule(id, on) { if (!can('settings.profile')) { deny('settings.profile'); return render(); } const s = activeModules(); on ? s.add(id) : s.delete(id); db.profile.modules = [...s]; db.profile.modulesSet = true; save(); render(); }
 function daysSinceBackup() { const t = Date.parse(db.meta.lastBackup || ''); return isNaN(t) ? null : Math.floor((Date.now() - t) / 864e5); }
 function lastBackupText() { const d = daysSinceBackup(); return d === null ? 'nunca' : d === 0 ? 'hoy' : 'hace ' + d + (d === 1 ? ' día' : ' días'); }
 function backupBanner() { const d = daysSinceBackup(); if (d !== null && d < 7) return; $app().insertAdjacentHTML('afterbegin', `<div class="notice">Último respaldo descargado: <b>${lastBackupText()}</b>. ${Store.mode === 'server' ? 'Tus datos están en el servidor local, pero conviene guardar una copia aparte.' : 'Tus datos viven solo en este navegador.'} <a href="#" data-act="go" data-page="settings">Exportar respaldo</a></div>`); }
 function saveBlobAs(name, blob) { const url = URL.createObjectURL(blob), a = document.createElement('a'); a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 4000); }
-function downloadCSV(name, headers, rows) { saveBlobAs('lukaris-' + name + '-' + today() + '.csv', new Blob(['\ufeff' + [headers, ...rows].map(r => r.map(C.csvCell).join(',')).join('\r\n')], { type: 'text/csv;charset=utf-8' })); }
+function downloadCSV(name, headers, rows) { saveBlobAs('lkone-' + name + '-' + today() + '.csv', new Blob(['\ufeff' + [headers, ...rows].map(r => r.map(C.csvCell).join(',')).join('\r\n')], { type: 'text/csv;charset=utf-8' })); }
 function exportCSV(kind) {
   const m = {
     clients: () => downloadCSV('clientes', ['Nombre', 'Teléfono', 'Correo'], db.clients.map(c => [c.name, c.phone, c.email || ''])),
@@ -458,15 +564,15 @@ async function exportBackup() {
   const files = {}; let n = 0, missing = 0;
   for (const a of db.attachments) { try { files[a.id] = await blobToB64(await Store.getBlob(a.id)); n++; } catch (e) { missing++; } }
   db.meta.lastBackup = new Date().toISOString(); save();
-  saveBlobAs('lukaris-respaldo-' + today() + '.json', new Blob([JSON.stringify({ app: 'LUKARIS', schemaVersion: C.SCHEMA_VERSION, appVersion: C.APP_VERSION, exportedAt: new Date().toISOString(), data: db, files }, null, 2)], { type: 'application/json' }));
+  saveBlobAs('lkone-respaldo-' + today() + '.json', new Blob([JSON.stringify({ app: 'LK ONE', schemaVersion: C.SCHEMA_VERSION, appVersion: C.APP_VERSION, exportedAt: new Date().toISOString(), data: db, files }, null, 2)], { type: 'application/json' }));
   if (page === 'settings') render(); toast(`Respaldo exportado con ${n} archivo${n === 1 ? '' : 's'}.` + (missing ? ` ${missing} adjunto(s) no se pudieron leer.` : ''), missing ? 'err' : '');
 }
 async function importBackup(input) {
   const file = input.files && input.files[0]; if (!file) return;
   try {
     const parsed = JSON.parse(await file.text()), cand = parsed.data;
-    if (+parsed.schemaVersion > C.SCHEMA_VERSION) throw new Error('El respaldo fue creado por una versión más nueva de LUKARIS.');
-    if (parsed.app !== 'LUKARIS' || !C.isObj(cand) || !C.isObj(cand.profile) || !['clients', 'services', 'appointments', 'payments', 'products', 'orders'].every(k => Array.isArray(cand[k]))) throw new Error('El archivo no tiene la estructura de respaldo LUKARIS.');
+    if (+parsed.schemaVersion > C.SCHEMA_VERSION) throw new Error('El respaldo fue creado por una versión más nueva de LK ONE.');
+    if (!['LUKARIS', 'LK ONE'].includes(parsed.app) || !C.isObj(cand) || !C.isObj(cand.profile) || !['clients', 'services', 'appointments', 'payments', 'products', 'orders'].every(k => Array.isArray(cand[k]))) throw new Error('El archivo no tiene la estructura de respaldo de LK ONE.');
     if (!await confirmBox({ title: 'Importar respaldo', message: 'Esto reemplazará todos los datos actuales por los del respaldo. ¿Continuar?', label: 'Reemplazar datos', danger: true })) return;
     const next = C.migrate(cand), files = C.isObj(parsed.files) ? parsed.files : {}, keep = new Set(); let lost = 0;
     next.attachments = next.attachments.filter(a => { if (files[a.id]) return true; lost++; return false; });
@@ -475,45 +581,80 @@ async function importBackup(input) {
     db = next; Store.force = true; save(); render(); toast('Respaldo restaurado.' + (lost ? ` ${lost} adjunto(s) no venían en el archivo.` : ''));
   } catch (err) { toast('No se pudo importar el respaldo: ' + err.message, 'err'); } finally { input.value = ''; }
 }
+function uploadLogo(input) {
+  const f = input.files && input.files[0]; input.value = ''; if (!f) return;
+  if (!/^image\/(png|jpeg|webp)$/.test(f.type)) return toast('El logotipo debe ser PNG, JPG o WebP.', 'err');
+  if (f.size > 4 * 1048576) return toast('El logotipo supera 4 MB.', 'err');
+  const img = new Image(), url = URL.createObjectURL(f);
+  img.onload = () => { const k = Math.min(1, 220 / Math.max(img.width, img.height)), c = document.createElement('canvas'); c.width = Math.max(1, Math.round(img.width * k)); c.height = Math.max(1, Math.round(img.height * k)); c.getContext('2d').drawImage(img, 0, 0, c.width, c.height); URL.revokeObjectURL(url); db.profile.logo = c.toDataURL('image/png'); save(); render(); toast('Logotipo actualizado.'); };
+  img.onerror = () => { URL.revokeObjectURL(url); toast('No se pudo leer la imagen.', 'err'); }; img.src = url;
+}
 function applyAppearance() {
   const a = db.profile.appearance || {}, root = document.documentElement;
-  const themes = { emerald: ['#165d52','#e6f3ef','#122b2a'], ocean: ['#245b9b','#e8f1fb','#142b45'], violet: ['#6941a5','#f0eafb','#2b2040'], rose: ['#ad496d','#faeaf0','#442332'], slate: ['#475569','#edf0f4','#202936'] };
+  const themes = { emerald: ['#165d52','#e6f3ef','#122b2a'], ocean: ['#245b9b','#e8f1fb','#142b45'], violet: ['#6941a5','#f0eafb','#2b2040'], rose: ['#ad496d','#faeaf0','#442332'], slate: ['#475569','#edf0f4','#202936'], amber: ['#b45309','#fdf1e1','#3b2410'], indigo: ['#4338ca','#ecebfb','#1e1b4b'] };
   const t = themes[a.theme] || themes.emerald; root.style.setProperty('--brand', t[0]); root.style.setProperty('--soft', t[1]); root.style.setProperty('--side-bg', t[2]);
   const fonts = { system: 'system-ui,sans-serif', inter: 'Inter,system-ui,sans-serif', serif: 'Georgia,serif', mono: 'ui-monospace,monospace' };
   document.body.style.fontFamily = fonts[a.font] || fonts.system; document.body.style.fontSize = ({compact:'14px',normal:'15px',large:'17px'})[a.scale] || '15px';
   root.dataset.radius = a.radius || 'normal';
+}
+function teamSection() {
+  const permRows = [['page.pos', 'Ver LK POS'], ['pos.orders', 'Tomar pedidos'], ['pos.kitchen', 'Vista de cocina'], ['pos.pay', 'Registrar pagos'], ['pos.shift', 'Abrir y cerrar caja'], ['pos.discount', 'Aplicar descuentos'], ['pos.void', 'Anular / cancelar'], ['pos.refund', 'Reembolsos'], ['pos.menu', 'Menú y mesas'], ['pos.reports', 'Reportes POS'], ['inventory.edit', 'Cambiar inventario'], ['delete.records', 'Eliminar registros'], ['settings.profile', 'Configuración'], ['users.manage', 'Usuarios']];
+  const roles = Object.keys(Cat.ROLES);
+  return `<section class="card"><h3>4. Equipo y permisos</h3><p class="desc">Usuarios y roles. Con el inicio de sesión activado cada persona ve y modifica solo lo que su rol permite. Sin él, la lista sirve para asignar meseros y profesionales.</p>
+${table(['Nombre', 'Rol', 'Estado', 'PIN', ''], db.users.map(u => tr([`<b>${esc(u.name)}</b>`, esc(Cat.ROLES[u.role]), u.active === false ? pill('Inactivo', 'bad') : pill('Activo', 'ok'), u.pinHash ? 'Definido' : '—', acts('user', u.id)])).join(''))}
+<div class="inline-actions">${btn('+ Usuario', 'new', { type: 'user' }, 'primary')}${authOn() ? btn('Desactivar inicio de sesión', 'auth-disable', {}, 'danger') : btn('Activar inicio de sesión con PIN', 'auth-enable')}</div>
+<div class="notice">${authOn() ? 'Inicio de sesión activo.' : 'Inicio de sesión desactivado: todos usan la aplicación como administrador.'} <b>Limitación:</b> los usuarios y PIN (cifrados con sal) viven en los datos del negocio; sin un backend con autenticación, quien tenga acceso al archivo o al navegador puede saltarse esta protección. Ver RESUMEN_TECNICO.md para la arquitectura de producción.</div>
+<h3 style="margin-top:18px">Matriz de permisos por rol</h3><div class="tablewrap"><table><thead><tr><th>Permiso</th>${roles.map(r => `<th>${esc(Cat.ROLES[r])}</th>`).join('')}</tr></thead><tbody>${permRows.map(([k, l]) => `<tr><td>${l}</td>${roles.map(r => `<td>${C.can({ role: r }, k) ? '✓' : '—'}</td>`).join('')}</tr>`).join('')}</tbody></table></div></section>`;
+}
+function waSection() {
+  const out = db.outbox.filter(m => m.status !== 'Cancelado').slice(-30).reverse(), R = LKAuto.RULES;
+  return `<section class="card" id="wa"><h3>Recordatorios y confirmación de citas por WhatsApp</h3><p class="desc">Estado del proveedor: <b>${esc(db.integrations.whatsapp.status)}</b>. ${LKAuto.connected(db) ? '' : 'Sin proveedor conectado, los mensajes se preparan en una cola y puedes enviarlos manualmente uno a uno.'}</p>
+<div class="steps"><div><b>Recordatorio 1</b><p>${R.reminder1Hours} horas antes de la cita.</p></div><div><b>Recordatorio 2</b><p>${R.reminder2Hours} horas antes.</p></div><div><b>Liberación del turno</b><p>Si el cliente no confirma en ${R.confirmWaitMinutes} minutos tras un envío, la cita pasa a «Pendiente de reprogramación» y el horario queda libre.</p></div><div><b>Asignación equilibrada</b><p>Al elegir «Asignar automáticamente» en una cita se escoge al profesional con menos citas ese día, respetando la preferencia del cliente si está libre.</p></div></div>
+<div class="inline-actions">${btn('Planificar recordatorios', 'wa-plan', {}, 'primary')}${btn('Aplicar regla de liberación', 'wa-release')}</div>
+<h3 style="margin-top:16px">Cola de mensajes</h3><div class="tablewrap outbox">${table(['Creado', 'Cliente', 'Tipo', 'Mensaje', 'Estado', ''], out.map(m => tr([fmtStamp(m.createdAt), esc(clientName(m.clientId)), esc(m.kind), `<span class="msg">${esc(m.text)}</span>`, pill(m.status, m.sentAt ? 'ok' : 'wait'), m.sentAt ? '' : `<div class="rowactions">${btn('Enviar manualmente', 'wa-manual', { id: m.id }, 'small')}${btn('Descartar', 'wa-discard', { id: m.id }, 'small danger')}</div>`])).join(''))}</div>
+<h3 style="margin-top:16px">Qué falta para el envío automático real</h3><ul>${LKAuto.REQUIREMENTS.map(r => `<li>${esc(r)}</li>`).join('')}</ul><div class="notice warn">LK ONE no guarda tokens de WhatsApp en el navegador ni simula una conexión. Detalle técnico en PENDIENTES.md.</div></section>`;
 }
 function settingsPage() {
   const rec = recommendedModules(), active = activeModules(), units = db.organizationUnits, P = db.profile;
   const opt = (list, cur) => list.map(([v, l]) => `<option value="${v}" ${cur === v ? 'selected' : ''}>${l}</option>`).join('');
   const filesTotal = db.attachments.reduce((s, a) => s + (+a.size || 0), 0);
   $app().innerHTML = head('Administración global', 'Configuración de LK ONE', 'Adapta la plataforma a la actividad, estructura y mercado de cada organización.') +
-    `<section class="card"><h3>1. Configuración adaptativa del negocio</h3><p class="desc">LK ONE recomienda módulos según la actividad seleccionada. Puedes activar o desactivar cada módulo.</p>
-<form data-form="profile" novalidate><div class="formgrid">${fld('Nombre del negocio', 'name', { value: P.name, req: true })}${sel('Actividad principal', 'type', [['retail', 'Comercio y retail'], ['services', 'Servicios profesionales'], ['beauty', 'Belleza, peluquerías, barberías y spas'], ['food', 'Alimentos y restaurantes'], ['health', 'Salud y bienestar'], ['education', 'Educación'], ['construction', 'Construcción e instalaciones'], ['automotive', 'Automoción y mantenimiento'], ['logistics', 'Logística y transporte'], ['hospitality', 'Turismo y alojamiento'], ['digital', 'Negocios digitales y suscripciones'], ['other', 'Otra actividad']], P.type)}${fld('País', 'country', { value: P.country || '', attrs: 'placeholder="País de operación"' })}${sel('Moneda principal', 'currency', [['COP', 'COP · Peso colombiano'], ['USD', 'USD · Dólar estadounidense'], ['EUR', 'EUR · Euro'], ['GBP', 'GBP · Libra esterlina'], ['MXN', 'MXN · Peso mexicano'], ['PEN', 'PEN · Sol peruano'], ['CLP', 'CLP · Peso chileno'], ['ARS', 'ARS · Peso argentino'], ['BRL', 'BRL · Real brasileño']], P.currency)}${sel('Idioma preferido', 'language', [['es', 'Español'], ['en', 'English'], ['pt', 'Português'], ['fr', 'Français']], P.language)}${fld('Zona horaria', 'timezone', { value: P.timezone || 'UTC', attrs: 'placeholder="Ej. America/Bogota"' })}${sel('Estructura de administración', 'accountMode', [['single', 'Una empresa'], ['group', 'Grupo de empresas'], ['both', 'Ambas modalidades']], P.accountMode || 'both')}</div><div class="actions"><button type="submit" class="btn primary">Guardar perfil</button></div></form>
-<div style="margin-top:16px"><b style="font-size:13px">Módulos para esta actividad</b><div class="module-grid" style="margin-top:9px">${moduleCatalog.map(([id, l]) => `<label class="module-option"><input type="checkbox" data-module="${id}" ${active.has(id) ? 'checked' : ''}><span>${l}${rec.includes(id) ? ' <span class="pill ok">Recomendado</span>' : ''}</span></label>`).join('')}</div></div></section>
+    `<section class="card"><h3>1. Perfil y configuración adaptativa del negocio</h3><p class="desc">LK ONE recomienda módulos según la actividad seleccionada. Escribe para buscar la actividad, el país o la zona horaria.</p>
+<form data-form="profile" novalidate><div class="formgrid">${fld('Nombre del negocio', 'name', { value: P.name, req: true })}
+<label class="field" data-name="activity">Actividad principal<input name="activity" list="dl-activity" value="${esc((Cat.findActivity(P.activity) || {}).label || '')}" autocomplete="off" placeholder="Escribe para buscar…"><datalist id="dl-activity">${Cat.ACTIVITIES.map(x => `<option value="${esc(x.label)}"></option>`).join('')}</datalist></label>
+<label class="field" data-name="country">País<input name="country" list="dl-country" value="${esc(P.country || '')}" autocomplete="off" placeholder="Escribe para buscar…"><datalist id="dl-country">${Cat.COUNTRIES.map(x => `<option value="${esc(x[0])}"></option>`).join('')}</datalist></label>
+${sel('Moneda principal', 'currency', Cat.CURRENCIES.map(([c, n]) => [c, `${c} · ${n}`]), P.currency)}${sel('Idioma preferido', 'language', [['es', 'Español'], ['en', 'English'], ['pt', 'Português'], ['fr', 'Français']], P.language)}
+<label class="field" data-name="timezone">Zona horaria<input name="timezone" list="dl-tz" value="${esc(P.timezone || 'UTC')}" autocomplete="off" placeholder="Ej. America/Bogota"><datalist id="dl-tz">${(Intl.supportedValuesOf ? Intl.supportedValuesOf('timeZone') : []).map(z => `<option value="${esc(z)}"></option>`).join('')}</datalist></label>
+${sel('Formato de fecha', 'dateFormat', [['auto', 'AAAA-MM-DD (predeterminado)'], ['DMY', 'DD/MM/AAAA'], ['MDY', 'MM/DD/AAAA'], ['YMD', 'AAAA-MM-DD']], P.dateFormat || 'auto')}${sel('Formato de hora', 'timeFormat', [['24h', '24 horas'], ['12h', '12 horas (a. m. / p. m.)']], P.timeFormat || '24h')}${sel('Estructura de administración', 'accountMode', [['single', 'Una empresa'], ['group', 'Grupo de empresas'], ['both', 'Ambas modalidades']], P.accountMode || 'both')}</div><div class="actions"><button type="submit" class="btn primary">Guardar perfil</button></div></form>
+<div style="margin-top:16px"><b style="font-size:13px">Logotipo</b><div class="inline-actions">${P.logo ? `<img src="${esc(P.logo)}" alt="Logotipo actual" style="height:44px;border:1px solid var(--line);border-radius:8px;padding:3px">` : '<span class="desc" style="margin:0">Sin logotipo.</span>'}<label class="btn">Subir logotipo<input type="file" hidden accept="image/png,image/jpeg,image/webp" data-logo></label>${P.logo ? btn('Quitar', 'logo-remove', {}, 'danger') : ''}</div></div>
+<div style="margin-top:16px"><b style="font-size:13px">Módulos para esta actividad</b><div class="module-grid" style="margin-top:9px">${moduleCatalog.map(([id, l]) => `<label class="module-option"><input type="checkbox" data-module="${id}" ${active.has(id) ? 'checked' : ''}><span>${l}${rec.includes(id) ? ' <span class="pill ok">Recomendado</span>' : ''}</span></label>`).join('')}</div><div class="inline-actions">${btn('Aplicar módulos recomendados', 'apply-recommended')}</div>
+${!active.has('pos') && (db.pos.tables.length || db.pos.orders.length || db.pos.menu.length) ? '<div class="notice">LK POS está oculto pero conserva sus datos. Actívalo arriba cuando lo necesites.</div>' : ''}<div class="notice">Ocultar un módulo no borra información: solo lo quita del menú. Cambiar la actividad tampoco elimina datos.</div></div></section>
 <section class="card"><h3>2. Personalización visual</h3><p class="desc">Adapta la apariencia de LK ONE a la identidad de tu negocio. Los cambios se guardan en el perfil de esta instalación.</p>
 <div class="formgrid">
-<label class="field">Tema de color<select data-appearance="theme"><option value="emerald">Esmeralda</option><option value="ocean">Azul océano</option><option value="violet">Violeta</option><option value="rose">Rosa</option><option value="slate">Grafito</option></select></label>
+<label class="field">Tema de color<select data-appearance="theme"><option value="emerald">Esmeralda</option><option value="ocean">Azul océano</option><option value="violet">Violeta</option><option value="rose">Rosa</option><option value="slate">Grafito</option><option value="amber">Ámbar</option><option value="indigo">Índigo</option></select></label>
 <label class="field">Tipografía<select data-appearance="font"><option value="system">Moderna del sistema</option><option value="inter">Inter</option><option value="serif">Serif elegante</option><option value="mono">Monoespaciada</option></select></label>
 <label class="field">Tamaño de texto<select data-appearance="scale"><option value="compact">Compacto</option><option value="normal">Normal</option><option value="large">Grande</option></select></label>
 <label class="field">Estilo de bordes<select data-appearance="radius"><option value="sharp">Rectos</option><option value="normal">Redondeados</option><option value="soft">Muy redondeados</option></select></label>
 </div><div class="notice">La personalización cambia colores, tipografía, escala de lectura y redondeo de componentes. No modifica los datos del negocio.</div></section>
 <section class="card"><h3>3. Empresas y sucursales</h3><p class="desc">La cuenta puede operar una sola empresa o administrar un grupo con varias empresas y sucursales.</p>
 ${units.map(u => `<div class="unit-row"><div><b>${esc(u.name)}</b><div class="desc" style="margin:2px 0 0">${u.kind === 'branch' ? 'Sucursal de ' + esc(units.find(x => x.id === u.parentId)?.name || 'empresa') : 'Empresa independiente'}</div></div><div class="rowactions">${pill(u.kind === 'branch' ? 'Sucursal' : 'Empresa')}${btn('Editar', 'edit', { type: 'unit', id: u.id }, 'small')}${btn('Eliminar', 'delete', { type: 'unit', id: u.id }, 'small danger')}</div></div>`).join('')}
-<div class="inline-actions">${btn('+ Agregar empresa o sucursal', 'new', { type: 'unit' })}</div><div class="notice">Las unidades son una estructura de referencia. El aislamiento de datos y los permisos por empresa requieren autenticación (aún no incluida).</div></section>
-<section class="card"><h3>4. Almacenamiento y respaldo</h3><dl class="kv"><dt>Modo</dt><dd>${Store.mode === 'server' ? 'Servidor local (archivo <b>data/lukaris.json</b>) + copia en el navegador' : 'Solo navegador (abre con <b>npm start</b> para usar el servidor)'}</dd><dt>Revisión</dt><dd>${Store.mode === 'server' ? Store.rev : '—'}</dd><dt>Adjuntos</dt><dd>${db.attachments.length} archivo(s) · ${formatBytes(filesTotal)}</dd><dt>Último respaldo</dt><dd>${lastBackupText()}</dd></dl>
-<div class="inline-actions">${btn('↓ Exportar respaldo JSON (con adjuntos)', 'export-backup', {}, 'primary')}<label class="btn">↑ Importar respaldo JSON<input type="file" accept="application/json,.json" hidden data-import></label></div>
+<div class="inline-actions">${can('settings.profile') ? btn('+ Agregar empresa o sucursal', 'new', { type: 'unit' }) : ''}</div><div class="notice">Las unidades son una estructura de referencia. El aislamiento de datos y los permisos por empresa requieren autenticación (aún no incluida).</div></section>
+${can('users.manage') ? teamSection() : ''}
+<section class="card"><h3>5. Almacenamiento y respaldo</h3><dl class="kv"><dt>Modo</dt><dd>${Store.mode === 'server' ? 'Servidor local (archivo <b>data/lukaris.json</b>) + copia en el navegador' : 'Solo navegador (abre con <b>npm start</b> para usar el servidor)'}</dd><dt>Revisión</dt><dd>${Store.mode === 'server' ? Store.rev : '—'}</dd><dt>Adjuntos</dt><dd>${db.attachments.length} archivo(s) · ${formatBytes(filesTotal)}</dd><dt>Último respaldo</dt><dd>${lastBackupText()}</dd></dl>
+${can('backup') ? `<div class="inline-actions">${btn('↓ Exportar respaldo JSON (con adjuntos)', 'export-backup', {}, 'primary')}<label class="btn">↑ Importar respaldo JSON<input type="file" accept="application/json,.json" hidden data-import></label></div>` : ''}
 <div class="inline-actions">${['clients:Clientes', 'appointments:Citas', 'sales:Ventas', 'payments:Pagos', 'products:Productos'].map(x => btn('↓ ' + x.split(':')[1] + ' CSV', 'export-csv', { kind: x.split(':')[0] })).join('')}</div>
 <div class="notice">Importar reemplaza los datos actuales tras pedir confirmación. En modo servidor se guardan además 14 copias diarias en <b>data/backups/</b>.</div></section>
-<section class="card danger-zone"><h3>Zona de riesgo</h3><p class="desc">Vuelve a los datos de demostración y elimina todos los adjuntos.</p>${btn('Cargar escenario comercial completo', 'load-showcase', {}, 'primary')} ${btn('Restablecer datos básicos', 'reset-data', {}, 'danger')}</section>`;
+${can('backup') ? `<section class="card danger-zone"><h3>Zona de riesgo</h3><p class="desc">Vuelve a los datos de demostración y elimina todos los adjuntos.</p>${btn('Cargar escenario comercial completo', 'load-showcase', {}, 'primary')} ${btn('Restablecer datos básicos', 'reset-data', {}, 'danger')}</section>` : ''}`;
   document.querySelectorAll('[data-appearance]').forEach(el => { el.value = (P.appearance || {})[el.dataset.appearance] || ({theme:"emerald",font:"system",scale:"normal",radius:"normal"})[el.dataset.appearance]; });
 }
 
 // ================= Eventos y arranque =================
 document.addEventListener('click', e => {
   if (e.target.id === 'back') return closeModal();
+  const navBtn = e.target.closest('#nav button'); if (navBtn) { closeModal(); return go(navBtn.dataset.page); }
   const el = e.target.closest('[data-act]'); if (!el) return;
   const fn = ACTIONS[el.dataset.act]; if (!fn) return;
+  const need = ACTION_PERM[el.dataset.act]; if (need && !can(need)) { e.preventDefault(); return deny(need); }
   if (el.tagName === 'A') e.preventDefault();
   Promise.resolve(fn(el.dataset, el)).catch(err => { console.error(err); toast('Ocurrió un error: ' + err.message, 'err'); });
 });
@@ -525,6 +666,8 @@ document.addEventListener('change', async e => {
   if (t.matches('[data-filter]')) return applyFilters(t.closest('section') || document);
   if (t.matches('[data-module]')) return toggleModule(t.dataset.module, t.checked);
   if (t.matches('[data-import]')) return importBackup(t);
+  if (t.matches('[data-logo]')) return uploadLogo(t);
+  if (t.matches('input[name=country]') && t.closest('form[data-form=profile]')) { const c = Cat.findCountry(t.value), f = t.closest('form'); if (c) { f.elements.currency.value = c[2]; f.elements.timezone.value = c[3]; toast(`Moneda (${c[2]}) y zona horaria (${c[3]}) sugeridas para ${c[0]}. Puedes cambiarlas.`); } return; }
   if (t.matches('input[data-attach]')) {
     const [ot, oid] = t.dataset.attach.split(':'), files = [...t.files]; t.value = ''; if (!files.length) return;
     const r = await attachFiles(ot, +oid, files); render(); ot === 'client' ? clientDetail(+oid) : apptDetail(+oid);
@@ -539,12 +682,13 @@ document.addEventListener('keydown', e => {
   if (e.key === 'Escape' && modalOpen()) { const no = $('[data-act=confirm-no]'); no ? no.click() : closeModal(); }
   if (e.key === 'Enter' && e.target.matches?.('tr.rowlink')) e.target.click();
 });
-document.querySelectorAll('#nav button').forEach(b => b.addEventListener('click', () => { closeModal(); go(b.dataset.page); }));
-(async function boot() {
+async function boot() {
   await Store.init();
   $('#sidefoot').textContent = 'Versión ' + C.APP_VERSION + (Store.mode === 'server' ? ' · Servidor local' : ' · Modo local');
-  render();
+  page = pageVisible('home') || !authOn() ? 'home' : firstPage(); render();
   try { navigator.storage?.persist?.(); } catch (e) {}
   window.addEventListener('pagehide', () => Store.flush());
   window.addEventListener('online', () => Store.pending && Store.schedule(0));
-})();
+  setInterval(() => { if (page === 'pos' && document.visibilityState === 'visible') Store.pull(); }, 6000);
+}
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot); else boot();

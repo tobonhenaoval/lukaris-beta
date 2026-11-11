@@ -1,0 +1,244 @@
+'use strict';
+/* LK POS · interfaz. Usa las funciones globales de app.js (db, render, save, toast, openModal…) y la lógica de pos-core.js (LKPOS).
+   Identidad visual: verde petróleo (ver body.pos-mode en styles.css). */
+const P = LKPOS;
+const PosUI = (() => {
+  const S = { tab: 'tables', orderId: null, cat: 0, station: '', from: '', to: '', unread: 0, status: '' };
+  const hid = (k, v) => `<input type="hidden" name="${k}" value="${esc(v)}">`;
+  const mform = (title, type, html, label = 'Guardar', id = '') => openModal(title, `<form data-form="${type}" data-id="${esc(id)}" novalidate>${html}<div class="actions"><button type="button" class="btn" data-act="cancel-form">Cancelar</button><button type="submit" class="btn primary">${label}</button></div></form>`);
+  const staff = () => db.users.filter(u => u.active !== false);
+  const staffOpts = (blank = 'Sin asignar') => [['', blank], ...staff().map(u => [u.id, `${u.name} · ${Cat.ROLES[u.role]}`])];
+  const order = id => P.findOrder(db, id);
+  const tagC = { 'Pendiente': 'wait', 'En preparación': 'info', 'Listo': 'ok', 'Entregado': '', 'Anulado': 'bad' };
+  const ordC = { 'Abierta': 'wait', 'Pagada': 'ok', 'Cancelada': 'bad', 'Reembolsada': 'bad', 'Unida': '' };
+  const run = (res, okMsg, after) => { if (!res.ok) { toast(res.error, 'err'); return false; } save(); if (after) after(res); closeModal(); render(); if (okMsg) toast(okMsg); return true; };
+  const diffHtml = n => n == null ? '—' : `<span class="${n < 0 ? 'diff-neg' : n > 0 ? 'diff-pos' : ''}">${n > 0 ? '+' : ''}${money(n)}</span>`;
+
+  const TABS = [['tables', 'Mesas', 'pos.tables'], ['orders', 'Pedidos', 'pos.orders'], ['kitchen', 'Cocina', 'pos.kitchen'], ['cash', 'Caja', 'pos.shift'], ['menu', 'Menú e inventario', 'pos.menu'], ['reports', 'Reportes', 'pos.reports'], ['settings', 'Ajustes', 'pos.settings']];
+  const tabsFor = () => TABS.filter(([k, , perm]) => can(perm) || (k === 'cash' && can('pos.pay')));
+  const myNotes = () => { const me = actor(); return db.pos.notifications.filter(n => !n.read && (!authOn() || me.role !== 'waiter' || !n.waiterId || n.waiterId === me.id)); };
+
+  // ================= página =================
+  function render() {
+    const tabs = tabsFor(); if (!tabs.length) { $app().innerHTML = head('LK POS', 'Punto de venta', 'Tu rol no tiene permisos en LK POS.'); return; }
+    if (!tabs.some(t => t[0] === S.tab)) S.tab = tabs[0][0];
+    if (S.orderId && !order(S.orderId)) S.orderId = null;
+    const notes = myNotes(); if (notes.length > S.unread) toast('🔔 ' + notes[notes.length - 1].text); S.unread = notes.length;
+    const sh = P.openShift_(db), bell = can('pos.orders') || can('pos.pay') ? `<button type="button" class="btn bell" data-act="pos-notes">🔔 Avisos${notes.length ? `<span class="dot">${notes.length}</span>` : ''}</button>` : '';
+    const sub = `Caja: <b>${sh ? 'abierta' : 'cerrada'}</b> · Mesas: ${db.pos.tables.length} · Productos del menú: ${db.pos.menu.length}`;
+    let body = '';
+    if (S.orderId) body = orderView(order(S.orderId));
+    else body = { tables: tablesTab, orders: ordersTab, kitchen: kitchenTab, cash: cashTab, menu: menuTab, reports: reportsTab, settings: settingsTab }[S.tab]();
+    $app().innerHTML = head('LK POS', 'Punto de venta', sub, bell) + `<div class="tabs" role="tablist">${tabs.map(([k, l]) => `<button type="button" class="chip ${S.tab === k && !S.orderId ? 'on' : ''}" data-act="pos-tab" data-tab="${k}">${l}</button>`).join('')}</div>` + body;
+  }
+
+  // ================= mesas =================
+  function tablesTab() {
+    const ts = db.pos.tables, st = ts.map(t => ({ t, s: P.tableStatus(db, t) })), cnt = k => st.filter(x => x.s.status === k).length;
+    const canMenu = can('pos.menu'), canOrd = can('pos.orders');
+    const cards = st.map(({ t, s }) => {
+      const cls = s.status.toLowerCase(), tot = s.orders ? s.orders.reduce((a, o) => a + P.totals(db, o).total, 0) : 0, w = db.users.find(u => u.id === t.waiterId);
+      return `<div><button type="button" class="tcard ${cls}" data-act="pos-table" data-id="${t.id}"><b>Mesa ${esc(t.name)}</b><small>${t.capacity} personas${t.zone ? ' · ' + esc(t.zone) : ''}</small><span class="pill t-${cls}">${s.status}</span>${s.status === 'Ocupada' ? `<small>${s.minutes} min · ${s.orders.length} cuenta(s) · <b>${money(tot)}</b></small>` : s.status === 'Reservada' ? `<small>${esc(s.reservation.name)} · ${fmtTime(s.reservation.time)}</small>` : ''}${w ? `<small>Mesero: ${esc(w.name)}</small>` : ''}</button>
+<div class="rowactions" style="margin-top:6px">${s.status === 'Libre' && canOrd ? btn('Reservar', 'pos-reserve', { id: t.id }, 'small') : ''}${canMenu ? btn('Editar', 'pos-table-edit', { id: t.id }, 'small') + btn('Eliminar', 'pos-table-del', { id: t.id }, 'small danger') : ''}</div></div>`;
+    }).join('');
+    return `<div class="stats"><div class="stat"><small>Mesas libres</small><strong>${cnt('Libre')}</strong></div><div class="stat"><small>Ocupadas</small><strong>${cnt('Ocupada')}</strong></div><div class="stat"><small>Reservadas</small><strong>${cnt('Reservada')}</strong></div><div class="stat"><small>Cuentas abiertas</small><strong>${db.pos.orders.filter(o => o.status === 'Abierta').length}</strong></div></div>
+<div class="inline-actions" style="margin:0 0 14px">${canOrd ? btn('+ Para llevar', 'pos-new-order', { type: 'Para llevar' }, 'primary') + btn('+ Domicilio', 'pos-new-order', { type: 'Domicilio' }) : ''}${canMenu ? btn('+ Mesa', 'pos-table-new') : ''}</div>
+${ts.length ? `<div class="tables-grid">${cards}</div>` : `<section class="card"><div class="empty">Aún no hay mesas. ${canMenu ? 'Crea la primera con «+ Mesa» o carga un menú de ejemplo desde «Menú e inventario».' : 'Pide a un gerente que configure las mesas.'}</div></section>`}`;
+  }
+
+  // ================= cuenta (pedido) =================
+  function orderView(o) {
+    const t = P.totals(db, o), open = o.status === 'Abierta', drafts = o.lines.filter(l => l.status === 'Borrador').length, title = o.type === 'Mesa' ? `Mesa ${esc(o.tableName)}` : esc(o.type);
+    const cats = db.pos.categories, items = db.pos.menu.filter(m => !S.cat || m.categoryId === S.cat);
+    const menu = open ? `<section class="card"><div class="cats"><button type="button" class="chip ${!S.cat ? 'on' : ''}" data-act="pos-cat" data-id="0">Todo</button>${cats.map(c => `<button type="button" class="chip ${S.cat === c.id ? 'on' : ''}" data-act="pos-cat" data-id="${c.id}">${esc(c.name)}</button>`).join('')}</div>
+${items.length ? `<div class="items-grid">${items.map(m => { const off = !m.available || !P.canMake(db, m); return `<button type="button" class="item-btn ${off ? 'off' : ''}" data-act="pos-add" data-id="${m.id}"><b>${esc(m.name)}</b><span>${money(m.price)}</span>${!m.available ? '<small>No disponible</small>' : !P.canMake(db, m) ? '<small>Sin insumos</small>' : ''}</button>`; }).join('')}</div>` : '<div class="empty">No hay productos en el menú. Créalos en «Menú e inventario».</div>'}</section>`
+      : `<section class="card"><h3>Cuenta #${o.number} · ${esc(o.status)}</h3><p class="desc">${esc(fmtStamp(o.openedAt))}${o.closedAt ? ' → ' + esc(fmtStamp(o.closedAt)) : ''}</p>${o.refund ? `<div class="notice warn">Reembolsada: ${esc(o.refund.reason)} (${esc(o.refund.by)})</div>` : ''}${o.cancelReason ? `<div class="notice warn">Cancelada: ${esc(o.cancelReason)}</div>` : ''}</section>`;
+    const lineHtml = l => { const draft = l.status === 'Borrador', gone = l.status === 'Anulado';
+      return `<div class="bill-line" ${gone ? 'style="opacity:.5;text-decoration:line-through"' : ''}><div class="nm"><b>${esc(l.name)}</b>${l.notes ? `<small>📝 ${esc(l.notes)}</small>` : ''}<small>${money(l.unitPrice)} c/u · ${esc(l.station)}${gone ? ' · ' + esc(l.voidReason || '') : ''}</small></div>
+${draft && open ? `<div class="qty"><button type="button" data-act="pos-qty" data-line="${l.id}" data-d="-1" aria-label="Menos">−</button><b>${l.qty}</b><button type="button" data-act="pos-qty" data-line="${l.id}" data-d="1" aria-label="Más">+</button></div>${btn('✎', 'pos-note', { line: l.id }, 'small')}` : `<b>${l.qty}×</b>${gone ? '' : pill(l.status, tagC[l.status])}`}<b>${money(l.qty * l.unitPrice)}</b>
+${open && l.status === 'Listo' ? btn('Entregar', 'pos-line-status', { line: l.id, status: 'Entregado' }, 'small') : ''}${open && !draft && !gone && can('pos.void') ? btn('Anular', 'pos-void-line', { line: l.id }, 'small danger') : ''}</div>`; };
+    const bill = `<section class="card bill"><h3>${title} · Cuenta #${o.number}</h3><p class="desc">${esc(o.waiterName ? 'Responsable: ' + o.waiterName + ' · ' : '')}${esc(o.type)}${o.guests ? ' · ' + o.guests + ' personas' : ''}${o.delivery ? '<br>' + esc(o.delivery.name) + ' · ' + esc(o.delivery.phone) + ' · ' + esc(o.delivery.address) : ''}${o.clientId ? '<br>Cliente: ' + esc(clientName(o.clientId)) : ''}</p>
+${o.lines.length ? o.lines.map(lineHtml).join('') : '<div class="empty">Agrega productos desde el menú.</div>'}
+<div class="totals"><div><span>Subtotal</span><span>${money(t.subtotal)}</span></div>${t.discount ? `<div><span>Descuento${o.discount ? ' (' + (o.discount.type === 'pct' ? o.discount.value + ' %' : 'valor') + ')' : ''}</span><span>−${money(t.discount)}</span></div>` : ''}${+o.taxRate ? `<div><span>Impuesto ${o.taxRate} %${o.taxIncluded ? ' (incluido)' : ''}</span><span>${money(t.tax)}</span></div>` : ''}${t.fee ? `<div><span>Domicilio</span><span>${money(t.fee)}</span></div>` : ''}${t.tip ? `<div><span>Propina</span><span>${money(t.tip)}</span></div>` : ''}<div class="grand"><span>Total</span><span>${money(t.total)}</span></div>${t.paid ? `<div><span>Pagado</span><span>${money(t.paid)}</span></div><div><b>Saldo</b><b>${money(t.balance)}</b></div>` : ''}</div>
+${o.payments.length ? `<div class="desc">${o.payments.map(p => `${esc(p.method)} ${money(p.amount)}${p.change ? ' (cambio ' + money(p.change) + ')' : ''}`).join(' · ')}</div>` : ''}
+${open ? `<div class="bill-actions">${drafts ? btn(`Enviar a preparación (${drafts})`, 'pos-send', {}, 'primary wide') : ''}${can('pos.pay') ? btn('Cobrar', 'pos-pay', {}, 'primary') : ''}${can('pos.discount') ? btn('Descuento', 'pos-discount') : ''}${btn('Propina', 'pos-tip')}${o.type === 'Mesa' ? btn('Dividir', 'pos-split') + btn('Mover mesa', 'pos-move') + btn('Unir cuentas', 'pos-merge') : ''}${btn('Cancelar cuenta', 'pos-cancel', {}, 'danger')}</div>` : ''}
+${o.status === 'Pagada' && can('pos.refund') ? `<div class="bill-actions">${btn('Reembolsar', 'pos-refund', {}, 'danger wide')}</div>` : ''}
+${btn('← Volver', 'pos-back', {}, 'wide')}
+<details style="margin-top:10px"><summary class="desc">Historial de la cuenta</summary>${(o.history || []).map(h => `<div class="desc" style="margin:2px 0">${esc(fmtStamp(h.at))} · ${esc(h.by)} · ${esc(h.text)}</div>`).join('')}</details></section>`;
+    return `<div class="pos-order"><div>${menu}</div><div>${bill}</div></div>`;
+  }
+
+  // ================= pedidos (historial) =================
+  function ordersTab() {
+    const rows = db.pos.orders.slice().sort((a, b) => b.openedAt.localeCompare(a.openedAt)).slice(0, 300).map(o => { const t = P.totals(db, o);
+      return tr([`#${o.number}`, esc(fmtStamp(o.openedAt)), o.type === 'Mesa' ? 'Mesa ' + esc(o.tableName) : esc(o.type), esc(o.waiterName || '—'), esc(clientName(o.clientId) || ''), money(t.total), pill(o.status, ordC[o.status]), btn(o.status === 'Abierta' ? 'Abrir' : 'Ver', 'pos-open', { id: o.id }, 'small')], { status: o.status, q: `${o.number} ${o.tableName} ${o.type} ${o.waiterName} ${o.status}` }); }).join('');
+    return `<section class="card" id="scope"><h3>Historial de pedidos</h3><p class="desc">Todas las cuentas: abiertas, pagadas, canceladas y reembolsadas.</p>${filterBar({ status: ['Abierta', 'Pagada', 'Cancelada', 'Reembolsada', 'Unida'] })}${table(['#', 'Fecha', 'Origen', 'Responsable', 'Cliente', 'Total', 'Estado', ''], rows)}</section>`;
+  }
+
+  // ================= cocina =================
+  function kitchenTab() {
+    const stations = db.pos.settings.stations || P.STATIONS, lines = P.kitchenLines(db, { station: S.station, includeDelivered: true });
+    const cols = ['Pendiente', 'En preparación', 'Listo', 'Entregado'];
+    const card = k => { const l = k.line, late = l.status !== 'Entregado' && k.minutes >= 15, nxt = { 'Pendiente': ['En preparación', 'Preparar'], 'En preparación': ['Listo', 'Marcar listo'], 'Listo': ['Entregado', 'Entregar'] }[l.status], bk = { 'En preparación': 'Pendiente', 'Listo': 'En preparación' }[l.status];
+      return `<div class="kcard ${late ? 'late' : ''}"><b>${l.qty}× ${esc(l.name)}</b><br><small>#${k.number} · ${k.type === 'Mesa' ? 'Mesa ' + esc(k.tableName) : esc(k.type)} · ${esc(l.station)}${k.waiterName ? ' · ' + esc(k.waiterName) : ''}</small>${l.notes ? `<div class="k-note">⚠ ${esc(l.notes)}</div>` : ''}<br><small>${l.status === 'Entregado' ? 'Entregado' : k.minutes + ' min'}</small>
+<div class="rowactions" style="margin-top:6px;justify-content:flex-start">${bk ? btn('↩', 'pos-line-status', { order: k.orderId, line: l.id, status: bk }, 'small') : ''}${nxt ? btn(nxt[1], 'pos-line-status', { order: k.orderId, line: l.id, status: nxt[0] }, 'small primary') : ''}</div></div>`; };
+    return `<div class="tabs"><button type="button" class="chip ${!S.station ? 'on' : ''}" data-act="pos-station" data-st="">Todas las estaciones</button>${stations.map(s => `<button type="button" class="chip ${S.station === s ? 'on' : ''}" data-act="pos-station" data-st="${esc(s)}">${esc(s)}</button>`).join('')}${btn('Actualizar', 'pos-refresh', {}, 'small')}</div>
+<div class="kitchen">${cols.map(c => { const l = lines.filter(k => k.line.status === c); return `<div class="kcol"><h3><span>${c}</span><span>${l.length}</span></h3>${l.map(card).join('') || '<small class="desc">Sin pedidos</small>'}</div>`; }).join('')}</div>`;
+  }
+
+  // ================= caja =================
+  function cashTab() {
+    const sh = P.openShift_(db), can_ = can('pos.shift');
+    const hist = db.pos.shifts.filter(s => s.status === 'Cerrado').slice().reverse().map(s => tr([`#${s.number}`, esc(fmtStamp(s.openedAt)), esc(fmtStamp(s.closedAt)), esc(s.closedByName || ''), money(s.closing.sales), money(s.closing.expectedCash), money(s.closing.countedCash), diffHtml(s.closing.difference), btn('Detalle', 'pos-shift-detail', { id: s.id }, 'small')])).join('');
+    let top = '';
+    if (!sh) top = `<section class="card"><h3>Caja cerrada</h3><p class="desc">Abre un turno con el efectivo inicial para poder registrar pagos.</p>${can_ ? btn('Abrir caja', 'pos-open-shift', {}, 'primary') : '<div class="notice">Solo cajeros, gerentes y administradores abren la caja.</div>'}</section>`;
+    else { const m = P.shiftSummary(db, sh);
+      top = `<section class="card"><h3>Turno #${sh.number} abierto</h3><p class="desc">Desde ${esc(fmtStamp(sh.openedAt))} · ${esc(sh.openedByName)}</p><div class="stats"><div class="stat"><small>Efectivo inicial</small><strong>${money(sh.openingCash)}</strong></div><div class="stat"><small>Ventas en efectivo</small><strong>${money(m.cashSales)}</strong></div><div class="stat"><small>Otros medios</small><strong>${money(m.sales - m.cashSales)}</strong></div><div class="stat"><small>Efectivo esperado</small><strong>${money(m.expectedCash)}</strong></div></div>
+<div class="desc">${Object.entries(m.byMethod).map(([k, v]) => `${esc(k)}: ${money(v)}`).join(' · ') || 'Sin pagos todavía'} · Ingresos: ${money(m.ingresos)} · Retiros: ${money(m.retiros)}${m.refunds ? ' · Reembolsos: ' + money(m.refunds) : ''}</div>
+${can_ ? `<div class="inline-actions">${btn('Registrar ingreso', 'pos-cashmove', { type: 'Ingreso' })}${btn('Registrar retiro', 'pos-cashmove', { type: 'Retiro' })}${btn('Cerrar caja (arqueo)', 'pos-close-shift', {}, 'primary')}</div>` : ''}
+${sh.movements.length ? table(['Hora', 'Tipo', 'Valor', 'Motivo', 'Por'], sh.movements.map(x => tr([esc(fmtStamp(x.at)), esc(x.type), money(x.amount), esc(x.reason), esc(x.by)])).join('')) : ''}</section>`; }
+    return top + `<section class="card"><h3>Historial de turnos</h3>${table(['Turno', 'Apertura', 'Cierre', 'Cerró', 'Ventas', 'Esperado', 'Contado', 'Diferencia', ''], hist)}</section>`;
+  }
+
+  // ================= menú e inventario =================
+  function menuTab() {
+    const cats = db.pos.categories, alerts = P.inventoryAlerts(db);
+    const catRows = cats.map(c => tr([esc(c.name), esc(c.kind), esc(c.station), db.pos.menu.filter(m => m.categoryId === c.id).length, `<div class="rowactions">${btn('Editar', 'pos-cat-edit', { id: c.id }, 'small')}${btn('Eliminar', 'pos-cat-del', { id: c.id }, 'small danger')}</div>`])).join('');
+    const itemRows = db.pos.menu.map(m => { const cost = P.itemCost(db, m), mg = m.price > 0 ? Math.round((m.price - cost) / m.price * 100) : 0, c = cats.find(x => x.id === m.categoryId);
+      return tr([`<b>${esc(m.name)}</b>`, esc(c ? c.name : '—'), money(m.price), money(cost), mg + ' %', esc(m.station), m.available ? (P.canMake(db, m) ? pill('Disponible', 'ok') : pill('Sin insumos', 'wait')) : pill('Oculto', 'bad'), `<div class="rowactions">${btn(m.available ? 'Ocultar' : 'Mostrar', 'pos-item-toggle', { id: m.id }, 'small')}${btn('Editar', 'pos-item-edit', { id: m.id }, 'small')}${btn('Eliminar', 'pos-item-del', { id: m.id }, 'small danger')}</div>`]); }).join('');
+    const ing = db.products.map(p => tr([esc(p.name), esc(p.sku || '—'), pill(p.stock + ' ' + (p.unit || 'und'), alerts.some(a => a.id === p.id) ? 'wait' : 'ok'), money(p.cost)])).join('');
+    return `${!db.pos.menu.length && can('pos.menu') ? `<div class="notice">Empieza creando categorías y productos, o carga un <b>menú de ejemplo</b> (hamburguesa, bebidas, café, 5 mesas e ingredientes) para probar el flujo. ${btn('Cargar menú de ejemplo', 'pos-seed', {}, 'small')}</div>` : ''}
+<section class="card"><h3>Categorías</h3><div class="inline-actions" style="margin:0 0 10px">${btn('+ Categoría', 'pos-cat-new', {}, 'primary')}</div>${table(['Categoría', 'Tipo', 'Estación', 'Productos', ''], catRows)}</section>
+<section class="card"><h3>Productos del menú y recetas</h3><p class="desc">El costo se calcula desde la receta (ingredientes del inventario) salvo que indiques un costo fijo.</p><div class="inline-actions" style="margin:0 0 10px">${cats.length ? btn('+ Producto', 'pos-item-new', {}, 'primary') : '<span class="desc">Crea primero una categoría.</span>'}</div>${table(['Producto', 'Categoría', 'Precio', 'Costo', 'Margen', 'Estación', 'Estado', ''], itemRows)}</section>
+<section class="card"><h3>Ingredientes e inventario</h3>${alerts.length ? `<div class="notice warn">Alertas de inventario: ${alerts.map(a => `${esc(a.name)} (${a.stock} ${esc(a.unit)})`).join(', ')}.</div>` : '<p class="desc">Sin alertas de insumos.</p>'}<div class="inline-actions" style="margin:0 0 10px">${can('inventory.edit') ? btn('+ Ingrediente / producto', 'pos-product-new', {}, 'primary') + btn('Registrar merma', 'pos-waste') + btn('+ Movimiento', 'pos-movement') : ''}${btn('Ir a Inventario', 'go', { page: 'inventory' })}</div>${table(['Producto / ingrediente', 'SKU', 'Existencias', 'Costo'], ing)}<div class="notice">Las ventas descuentan ingredientes según la receta al enviar el pedido a preparación (una sola vez por línea). Las existencias admiten decimales (kg, l…).</div></section>`;
+  }
+
+  // ================= reportes =================
+  function reportsTab() {
+    if (!S.from) { const d = new Date(); S.from = C.isoDate(new Date(d.getFullYear(), d.getMonth(), 1)); S.to = today(); }
+    const r = P.report(db, { from: S.from, to: S.to }), tb = (h, rows) => table(h, rows.join(''));
+    return `<section class="card"><div class="filters"><label class="field" style="flex-direction:row;align-items:center;gap:8px">Desde<input type="date" data-pos-range="from" value="${esc(S.from)}"></label><label class="field" style="flex-direction:row;align-items:center;gap:8px">Hasta<input type="date" data-pos-range="to" value="${esc(S.to)}"></label>${btn('Exportar productos CSV', 'pos-export', {}, 'small')}</div><p class="desc">Todo se calcula desde las cuentas, pagos y turnos registrados. Costos y márgenes son estimados (según recetas y costos de inventario).</p></section>
+<div class="stats"><div class="stat"><small>Ventas</small><strong>${money(r.sales)}</strong></div><div class="stat"><small>Cuentas pagadas</small><strong>${r.orders}</strong></div><div class="stat"><small>Ticket promedio</small><strong>${money(r.avgTicket)}</strong></div><div class="stat"><small>Propinas</small><strong>${money(r.tips)}</strong></div></div>
+<div class="stats"><div class="stat"><small>Costo estimado</small><strong>${money(r.cost)}</strong></div><div class="stat"><small>Margen estimado</small><strong>${money(r.margin)} <small>(${r.marginPct} %)</small></strong></div><div class="stat"><small>Diferencias de caja</small><strong>${diffHtml(r.cashDifferences)}</strong></div><div class="stat"><small>Reembolsos / mermas</small><strong>${money(r.refunds.total)} / ${money(r.wasteCost)}</strong></div></div>
+<div class="grid2"><section class="card"><h3>Ventas por día</h3>${tb(['Día', 'Cuentas', 'Ventas'], r.byDay.map(x => tr([esc(fmtDate(x.key)), x.count, money(x.sales)])))}</section><section class="card"><h3>Ventas por medio de pago</h3>${tb(['Medio', 'Pagos', 'Valor'], r.byMethod.map(x => tr([esc(x.key), x.count, money(x.sales)])))}</section></div>
+<div class="grid2"><section class="card"><h3>Ventas por producto</h3>${tb(['Producto', 'Cant.', 'Ventas', 'Costo'], r.byProduct.map(x => tr([esc(x.key), x.qty, money(x.sales), money(x.cost)])))}</section><section class="card"><h3>Ventas por categoría</h3>${tb(['Categoría', 'Cant.', 'Ventas'], r.byCategory.map(x => tr([esc(x.key), x.qty, money(x.sales)])))}</section></div>
+<div class="grid2"><section class="card"><h3>Productos más vendidos</h3>${tb(['Producto', 'Cant.'], r.topProducts.map(x => tr([esc(x.key), x.qty])))}</section><section class="card"><h3>Ventas por mesero / responsable</h3>${tb(['Responsable', 'Cuentas', 'Ventas'], r.byWaiter.map(x => tr([esc(x.key), x.count, money(x.sales)])))}</section></div>
+<section class="card"><h3>Ventas y diferencias por turno</h3>${tb(['Turno', 'Apertura', 'Estado', 'Ventas', 'Esperado', 'Contado', 'Diferencia'], r.shifts.map(x => tr([`#${x.number}`, esc(fmtStamp(x.openedAt)), esc(x.status), money(x.sales), money(x.expectedCash), x.countedCash == null ? '—' : money(x.countedCash), diffHtml(x.difference)])))}</section>
+<section class="card"><h3>Consumo de ingredientes</h3>${tb(['Ingrediente', 'Cantidad', 'Costo'], r.ingredients.map(x => tr([esc(x.name), x.qty + ' ' + esc(x.unit), money(x.cost)])))}</section>`;
+  }
+
+  // ================= ajustes =================
+  function settingsTab() {
+    const s = db.pos.settings;
+    return `<section class="card"><h3>Ajustes de LK POS</h3><form data-form="pos-settings" novalidate><div class="formgrid">${fld('Impuesto (%)', 'taxRate', { type: 'number', value: s.taxRate, attrs: 'min="0" max="100" step="any"' })}${sel('Los precios del menú…', 'taxIncluded', [['no', 'no incluyen impuesto (se suma)'], ['yes', 'ya incluyen el impuesto']], s.taxIncluded ? 'yes' : 'no')}${fld('Propina sugerida (%)', 'tipPercent', { type: 'number', value: s.tipPercent, attrs: 'min="0" max="100" step="any"' })}${sel('Vender sin insumos suficientes', 'allowNegativeStock', [['no', 'No: bloquear el envío'], ['yes', 'Sí: permitir (el stock puede quedar negativo)']], s.allowNegativeStock ? 'yes' : 'no')}${fld('Otros medios de pago (separados por coma)', 'extraMethods', { value: (s.extraMethods || []).join(', '), full: true, attrs: 'placeholder="Ej. Bono, Cortesía, Nequi"' })}</div><div class="actions"><button type="submit" class="btn primary">Guardar ajustes</button></div></form><div class="notice">El impuesto se toma al abrir cada cuenta: cambiarlo no altera cuentas ya abiertas. Esta versión no emite facturas electrónicas ni documentos fiscales.</div></section>`;
+  }
+
+  // ================= formularios =================
+  function handleForm(form, raw, editId) {
+    const type = form.dataset.form, ctx = { editId }, me = actor(), fin = (res, msg, after) => { if (!res.ok) { toast(res.error, 'err'); return; } run(res, msg, after); };
+    if (type === 'pos-linenote') { const o = order(raw.orderId); return fin(P.setLineNotes(db, raw.orderId, raw.lineId, raw.notes, me), 'Nota guardada.'); }
+    if (type === 'pos-move') return fin(P.moveOrder(db, +raw.orderId, +raw.tableId, me), 'Cuenta movida.');
+    if (type === 'pos-merge') return fin(P.mergeOrders(db, +raw.orderId, +raw.intoId, me), 'Cuentas unidas.', () => { S.orderId = +raw.intoId; });
+    if (type === 'pos-split') { const picks = Object.entries(raw).filter(([k]) => k.startsWith('q_')).map(([k, v]) => ({ lineId: +k.slice(2), qty: +v || 0 })); return fin(P.splitOrder(db, +raw.orderId, picks, me), 'Cuenta dividida.', r => { S.orderId = r.id; }); }
+    const v = P.validate(type, raw, db, ctx); if (!v.ok) return showErrors(form, v.errors); const x = v.value;
+    switch (type) {
+      case 'pos-table': return fin(P.saveTable(db, x, editId, me), 'Mesa guardada.');
+      case 'pos-category': return fin(P.saveCategory(db, x, editId, me), 'Categoría guardada.');
+      case 'pos-item': return fin(P.saveItem(db, x, editId, me), 'Producto guardado.');
+      case 'pos-order': return fin(P.newOrder(db, x, me), 'Cuenta abierta.', r => { S.orderId = r.id; });
+      case 'pos-discount': return fin(P.applyDiscount(db, +raw.orderId, x, me), x.value > 0 ? 'Descuento aplicado.' : 'Descuento retirado.');
+      case 'pos-tip': return fin(P.setTip(db, +raw.orderId, { mode: x.mode, value: x.value }, me), 'Propina actualizada.');
+      case 'pos-pay': { const r = P.pay(db, +raw.orderId, { method: x.method, amount: x.amount, tendered: x.tendered || undefined, reference: x.reference }, me); if (!r.ok) return showErrors(form, { amount: r.error }); save(); closeModal(); render(); return payDone(r); }
+      case 'pos-open-shift': return fin(P.openShift(db, x, me), 'Caja abierta.');
+      case 'pos-cashmove': return fin(P.cashMove(db, x, me), x.type + ' registrado.');
+      case 'pos-close-shift': { const r = P.closeShift(db, x, me); if (!r.ok) return toast(r.error, 'err'); save(); closeModal(); render(); return openModal('Caja cerrada', `<dl class="kv"><dt>Esperado</dt><dd>${money(r.closing.expectedCash)}</dd><dt>Contado</dt><dd>${money(r.closing.countedCash)}</dd><dt>Diferencia</dt><dd>${diffHtml(r.closing.difference)}</dd></dl>${r.warnings.map(w => `<div class="notice warn">${esc(w)}</div>`).join('')}<div class="actions">${btn('Cerrar', 'close', {}, 'primary')}</div>`); }
+      case 'pos-reserve': return fin(P.reserveTable(db, +raw.tableId, x, me), 'Mesa reservada.');
+      case 'pos-reason': {
+        const id = +raw.orderId; let res;
+        if (raw.op === 'cancel') res = P.cancelOrder(db, id, { reason: x.reason, restock: x.restock }, me), res.ok && (S.orderId = null);
+        else if (raw.op === 'refund') res = P.refundOrder(db, id, { reason: x.reason, restock: x.restock }, me);
+        else res = P.voidLine(db, id, +raw.lineId, { reason: x.reason, restock: x.restock }, me);
+        return fin(res, raw.op === 'cancel' ? 'Cuenta cancelada.' : raw.op === 'refund' ? 'Reembolso registrado.' : 'Producto anulado.');
+      }
+      case 'pos-settings': return fin(P.saveSettings(db, x, me), 'Ajustes guardados.');
+      case 'pos-waste': return fin(P.registerWaste(db, x, me), 'Merma registrada.');
+    }
+  }
+  function payDone(r) {
+    if (r.closed) return openModal('Cuenta pagada', `<p class="confirm-text"><b>La cuenta quedó cerrada.</b> La venta se registró en Comercial, Finanzas y reportes.</p>${r.change ? `<div class="stats" style="grid-template-columns:1fr"><div class="stat"><small>Cambio a devolver</small><strong>${money(r.change)}</strong></div></div>` : ''}<div class="actions">${btn('Listo', 'pos-done', {}, 'primary')}</div>`);
+    toast(`Pago registrado. Saldo: ${money(r.balance)}${r.change ? ' · Cambio: ' + money(r.change) : ''}`);
+  }
+  const reasonForm = (op, orderId, title, extra = '', lineId = '', restockDefault = 'yes', note = '') => mform(title, 'pos-reason', `${hid('op', op)}${hid('orderId', orderId)}${hid('lineId', lineId)}<div class="formgrid">${area('Motivo', 'reason', '')}${sel('¿Devolver los insumos al inventario?', 'restock', [['yes', 'Sí, devolver'], ['no', 'No (queda como pérdida/merma)']], restockDefault, true)}</div>${note ? `<p class="desc">${note}</p>` : ''}`, title);
+
+  // ================= acciones =================
+  const cur = () => order(S.orderId);
+  const A = {
+    'pos-tab': d => { S.tab = d.tab; S.orderId = null; render(); },
+    'pos-back': () => { S.orderId = null; render(); },
+    'pos-done': () => { closeModal(); S.orderId = null; render(); },
+    'pos-open': d => { S.orderId = +d.id; render(); },
+    'pos-cat': d => { S.cat = +d.id; render(); },
+    'pos-station': d => { S.station = d.st; render(); },
+    'pos-refresh': () => { if (Store.mode === 'server') Store.pull(true); else render(); },
+    'pos-notes': () => { const n = myNotes(); openModal('Avisos de cocina', n.length ? n.slice().reverse().map(x => `<div class="split-row"><span>${esc(fmtStamp(x.createdAt))} · ${esc(x.text)}</span>${btn('Leído', 'pos-note-read', { id: x.id }, 'small')}</div>`).join('') + `<div class="actions">${btn('Cerrar', 'close', {}, 'primary')}</div>` : `<p class="desc">No hay avisos pendientes.</p><div class="actions">${btn('Cerrar', 'close', {}, 'primary')}</div>`); },
+    'pos-note-read': d => { P.markNotificationRead(db, d.id); save(); closeModal(); render(); A['pos-notes'](); },
+    'pos-table': d => {
+      const t = P.findTable(db, d.id), s = P.tableStatus(db, t);
+      if (s.status === 'Ocupada') { if (s.orders.length === 1) { S.orderId = s.orders[0].id; return render(); }
+        return openModal(`Mesa ${t.name}: cuentas abiertas`, s.orders.map(o => `<div class="split-row"><span>Cuenta #${o.number} · ${money(P.totals(db, o).total)}</span>${btn('Abrir', 'pos-open-close', { id: o.id }, 'small primary')}</div>`).join('') + `<div class="actions">${btn('+ Nueva cuenta en esta mesa', 'pos-table-account', { id: t.id })}</div>`); }
+      if (s.status === 'Reservada') return openModal(`Mesa ${t.name}: reservada`, `<p class="confirm-text">${esc(s.reservation.name)} · ${fmtTime(s.reservation.time)}${s.reservation.guests ? ' · ' + s.reservation.guests + ' personas' : ''}${s.reservation.note ? '<br>' + esc(s.reservation.note) : ''}</p><div class="actions">${btn('Liberar reserva', 'pos-unreserve', { id: t.id }, 'danger')}${btn('Sentar y abrir cuenta', 'pos-table-account', { id: t.id }, 'primary')}</div>`);
+      if (!can('pos.orders')) return toast('No tienes permiso para tomar pedidos.', 'err');
+      mform(`Abrir cuenta · Mesa ${t.name}`, 'pos-order', `${hid('type', 'Mesa')}${hid('tableId', t.id)}<div class="formgrid">${fld('Personas', 'guests', { type: 'number', value: '', attrs: 'min="1" max="99"' })}${sel('Mesero / responsable', 'waiterId', staffOpts('Mesero de la mesa'), t.waiterId || (actor().role === 'waiter' ? actor().id : ''))}${sel('Cliente (opcional)', 'clientId', [['', 'Consumidor final'], ...db.clients.filter(c => !c.system).map(c => [c.id, c.name])], '', true)}</div>`, 'Abrir cuenta');
+    },
+    'pos-open-close': d => { closeModal(); S.orderId = +d.id; render(); },
+    'pos-table-account': d => { const t = P.findTable(db, d.id); closeModal(); const r = P.newOrder(db, { type: 'Mesa', tableId: t.id, waiterId: t.waiterId || null }, actor()); run(r, 'Cuenta abierta.', x => { S.orderId = x.id; }); },
+    'pos-unreserve': d => run(P.reserveTable(db, +d.id, null, actor()), 'Reserva liberada.'),
+    'pos-reserve': d => mform('Reservar mesa', 'pos-reserve', `${hid('tableId', d.id)}<div class="formgrid">${fld('A nombre de', 'name', { req: true, full: true })}${fld('Hora', 'time', { type: 'time', value: '20:00', req: true })}${fld('Personas', 'guests', { type: 'number', attrs: 'min="1"' })}${area('Nota', 'note', '')}</div>`, 'Reservar'),
+    'pos-new-order': d => mform(d.type === 'Domicilio' ? 'Pedido a domicilio' : 'Pedido para llevar', 'pos-order', `${hid('type', d.type)}<div class="formgrid">${d.type === 'Domicilio' ? `${fld('Nombre del cliente', 'customerName', { req: true })}${fld('Teléfono', 'customerPhone', { req: true, type: 'tel' })}${fld('Dirección', 'address', { req: true, full: true })}${fld('Costo del domicilio', 'fee', { type: 'number', value: 0, attrs: 'min="0" step="any"' })}` : ''}${sel('Responsable', 'waiterId', staffOpts('Sin asignar'), actor().role === 'waiter' ? actor().id : '')}${sel('Cliente registrado (opcional)', 'clientId', [['', 'Consumidor final'], ...db.clients.filter(c => !c.system).map(c => [c.id, c.name])], '', true)}${area('Observaciones', 'notes', '')}</div>`, 'Abrir cuenta'),
+    // mesas
+    'pos-table-new': () => mform('Nueva mesa', 'pos-table', `<div class="formgrid">${fld('Número o nombre', 'name', { req: true })}${fld('Capacidad', 'capacity', { type: 'number', value: 4, attrs: 'min="1" max="99"', req: true })}${fld('Zona', 'zone', { attrs: 'placeholder="Salón, terraza, barra…"' })}${sel('Mesero asignado', 'waiterId', staffOpts(), '')}</div>`, 'Guardar mesa'),
+    'pos-table-edit': d => { const t = P.findTable(db, d.id); mform('Editar mesa', 'pos-table', `<div class="formgrid">${fld('Número o nombre', 'name', { value: t.name, req: true })}${fld('Capacidad', 'capacity', { type: 'number', value: t.capacity, req: true })}${fld('Zona', 'zone', { value: t.zone })}${sel('Mesero asignado', 'waiterId', staffOpts(), t.waiterId || '')}</div>`, 'Guardar mesa', t.id); },
+    'pos-table-del': async d => { if (await confirmBox({ title: 'Eliminar mesa', message: '¿Eliminar esta mesa? Las cuentas históricas se conservan.', label: 'Eliminar', danger: true })) run(P.removeTable(db, +d.id, actor()), 'Mesa eliminada.'); },
+    // cuenta
+    'pos-add': d => { const o = cur(), r = P.addLine(db, o.id, { itemId: +d.id, qty: 1 }, actor()); if (!r.ok) return toast(r.error, 'err'); save(); render(); },
+    'pos-qty': d => { const o = cur(), l = o.lines.find(x => x.id === +d.line); if (!l) return; const r = P.setLineQty(db, o.id, l.id, l.qty + +d.d, actor()); if (!r.ok) return toast(r.error, 'err'); save(); render(); },
+    'pos-note': d => { const o = cur(), l = o.lines.find(x => x.id === +d.line); mform('Observaciones · ' + l.name, 'pos-linenote', `${hid('orderId', o.id)}${hid('lineId', l.id)}<div class="formgrid">${area('Especificaciones (sin cebolla, término medio…)', 'notes', l.notes)}</div>`); },
+    'pos-send': () => { const r = P.sendToKitchen(db, cur().id, actor()); if (!r.ok) return toast(r.error, 'err'); save(); render(); toast('Enviado a preparación.'); },
+    'pos-line-status': d => { const oid = d.order ? +d.order : S.orderId, r = P.setLineStatus(db, oid, +d.line, d.status, actor()); if (!r.ok) return toast(r.error, 'err'); save(); render(); if (d.status === 'Listo') toast('Listo: se avisó al responsable.'); },
+    'pos-void-line': d => reasonForm('void', cur().id, 'Anular producto enviado', '', d.line, 'no', 'Anular requiere autorización. Si no devuelves insumos quedan registrados como pérdida.'),
+    'pos-cancel': () => { const o = cur(), sent = o.lines.some(l => l.status !== 'Borrador' && l.status !== 'Anulado'); if (!sent) return confirmBox({ title: 'Cancelar cuenta', message: '¿Cancelar esta cuenta? No tiene productos enviados.', label: 'Cancelar cuenta', danger: true }).then(ok => ok && run(P.cancelOrder(db, o.id, { reason: 'Sin consumo' }, actor()), 'Cuenta cancelada.', () => { S.orderId = null; })); reasonForm('cancel', o.id, 'Cancelar cuenta', '', '', 'yes', 'Hay productos enviados a preparación: se requiere autorización y motivo.'); },
+    'pos-refund': () => reasonForm('refund', cur().id, 'Reembolsar cuenta', '', '', 'no', 'Se devuelve el dinero por los mismos medios de pago y se descuenta de la caja abierta. La venta queda anulada.'),
+    'pos-discount': () => { const o = cur(); mform('Descuento', 'pos-discount', `${hid('orderId', o.id)}<div class="formgrid">${sel('Tipo', 'type', [['pct', 'Porcentaje (%)'], ['amt', 'Valor fijo']], o.discount ? o.discount.type : 'pct')}${fld('Valor (0 = quitar)', 'value', { type: 'number', value: o.discount ? o.discount.value : 10, attrs: 'min="0" step="any"' })}${fld('Motivo / autorización', 'reason', { full: true, value: o.discount ? o.discount.reason : '' })}</div>`, 'Aplicar'); },
+    'pos-tip': () => { const o = cur(), pct = db.pos.settings.tipPercent; mform('Propina', 'pos-tip', `${hid('orderId', o.id)}<div class="chips">${btn('Sin propina', 'pos-tip-quick', { mode: 'amt', value: 0 }, 'chip')}${pct > 0 ? btn(`Sugerida ${pct} %`, 'pos-tip-quick', { mode: 'pct', value: pct }, 'chip') : ''}</div><div class="formgrid">${sel('Tipo', 'mode', [['pct', 'Porcentaje (%)'], ['amt', 'Valor fijo']], o.tipMode)}${fld('Valor', 'value', { type: 'number', value: o.tipValue, attrs: 'min="0" step="any"' })}</div>`, 'Guardar propina'); },
+    'pos-tip-quick': d => run(P.setTip(db, S.orderId, { mode: d.mode, value: +d.value }, actor()), 'Propina actualizada.'),
+    'pos-pay': () => { const o = cur(), t = P.totals(db, o); if (!P.openShift_(db)) return toast('Abre la caja antes de cobrar (pestaña Caja).', 'err'); mform('Cobrar · saldo ' + money(t.balance), 'pos-pay', `${hid('orderId', o.id)}<div class="formgrid">${sel('Medio de pago', 'method', P.methods(db).map(m => [m, m]), 'Efectivo')}${fld('Valor a pagar', 'amount', { type: 'number', value: t.balance, attrs: 'min="0.01" step="any"', req: true })}${fld('Efectivo recibido (para calcular el cambio)', 'tendered', { type: 'number', attrs: 'min="0" step="any"' })}${fld('Referencia (opcional)', 'reference', {})}</div><p class="desc">Puedes pagar una parte ahora y el resto después, o con otro medio de pago. El pago no puede superar el saldo.</p>`, 'Registrar pago'); },
+    'pos-split': () => { const o = cur(); mform('Dividir cuenta', 'pos-split', `${hid('orderId', o.id)}<p class="desc">Indica cuántas unidades de cada producto pasan a la nueva cuenta.</p>${P.activeLines(o).map(l => `<div class="split-row"><span>${l.qty}× ${esc(l.name)}</span><input type="number" name="q_${l.id}" min="0" max="${l.qty}" value="0" aria-label="Unidades de ${esc(l.name)}"></div>`).join('')}`, 'Dividir'); },
+    'pos-move': () => { const o = cur(), free = db.pos.tables.filter(t => t.id !== o.tableId && P.tableStatus(db, t).status !== 'Ocupada'); if (!free.length) return toast('No hay mesas libres para mover la cuenta.', 'err'); mform('Mover cuenta de mesa', 'pos-move', `${hid('orderId', o.id)}<div class="formgrid">${sel('Mesa destino', 'tableId', free.map(t => [t.id, `Mesa ${t.name}`]), free[0].id, true)}</div>`, 'Mover'); },
+    'pos-merge': () => { const o = cur(), others = db.pos.orders.filter(x => x.status === 'Abierta' && x.id !== o.id && x.tableId === o.tableId && o.type === 'Mesa'); if (!others.length) return toast('No hay otra cuenta abierta en esta mesa para unir.', 'err'); mform('Unir cuentas', 'pos-merge', `${hid('orderId', o.id)}<div class="formgrid">${sel('Unir esta cuenta a…', 'intoId', others.map(x => [x.id, `Cuenta #${x.number} · ${money(P.totals(db, x).total)}`]), others[0].id, true)}</div>`, 'Unir'); },
+    // caja
+    'pos-open-shift': () => mform('Abrir caja', 'pos-open-shift', `<div class="formgrid">${fld('Efectivo inicial', 'openingCash', { type: 'number', value: 0, attrs: 'min="0" step="any"', req: true })}${area('Notas', 'notes', '')}</div>`, 'Abrir caja'),
+    'pos-cashmove': d => mform(d.type === 'Retiro' ? 'Retiro de efectivo' : 'Ingreso de efectivo', 'pos-cashmove', `${hid('type', d.type)}<div class="formgrid">${fld('Valor', 'amount', { type: 'number', attrs: 'min="0.01" step="any"', req: true })}${fld('Motivo', 'reason', { req: true, full: true })}</div>`, 'Registrar'),
+    'pos-close-shift': () => { const sh = P.openShift_(db), m = P.shiftSummary(db, sh); mform('Cerrar caja · arqueo', 'pos-close-shift', `<dl class="kv"><dt>Efectivo esperado</dt><dd><b>${money(m.expectedCash)}</b></dd><dt>Ventas</dt><dd>${money(m.sales)}</dd></dl><div class="formgrid">${fld('Efectivo contado', 'countedCash', { type: 'number', attrs: 'min="0" step="any"', req: true })}${area('Notas', 'notes', '')}</div><p class="desc">La diferencia entre lo esperado y lo contado queda registrada en el turno.</p>`, 'Cerrar caja'); },
+    'pos-shift-detail': d => { const s = db.pos.shifts.find(x => x.id === +d.id), c = s.closing; openModal('Turno #' + s.number, `<dl class="kv"><dt>Apertura</dt><dd>${esc(fmtStamp(s.openedAt))} · ${esc(s.openedByName)}</dd><dt>Cierre</dt><dd>${esc(fmtStamp(s.closedAt))} · ${esc(s.closedByName)}</dd><dt>Efectivo inicial</dt><dd>${money(s.openingCash)}</dd><dt>Ventas por medio</dt><dd>${Object.entries(c.byMethod).map(([k, v]) => esc(k) + ': ' + money(v)).join('<br>') || '—'}</dd><dt>Ingresos / retiros</dt><dd>${money(c.ingresos)} / ${money(c.retiros)}</dd><dt>Reembolsos</dt><dd>${money(c.refunds)}</dd><dt>Esperado</dt><dd>${money(c.expectedCash)}</dd><dt>Contado</dt><dd>${money(c.countedCash)}</dd><dt>Diferencia</dt><dd>${diffHtml(c.difference)}</dd>${c.notes ? `<dt>Notas</dt><dd>${esc(c.notes)}</dd>` : ''}</dl><div class="actions">${btn('Cerrar', 'close', {}, 'primary')}</div>`); },
+    // menú
+    'pos-seed': async () => { if (await confirmBox({ title: 'Cargar menú de ejemplo', message: 'Se agregarán categorías, productos de ejemplo, ingredientes al inventario y 5 mesas. Son datos de muestra para probar; puedes editarlos o eliminarlos.', label: 'Cargar ejemplo' })) run(P.seedExample(db, actor()), 'Menú de ejemplo cargado.'); },
+    'pos-cat-new': () => mform('Nueva categoría', 'pos-category', `<div class="formgrid">${fld('Nombre', 'name', { req: true, full: true })}${sel('Tipo', 'kind', P.KINDS.map(x => [x, x]), 'Comida')}${sel('Estación de preparación', 'station', P.STATIONS.map(x => [x, x]), 'Cocina')}</div>`, 'Guardar categoría'),
+    'pos-cat-edit': d => { const c = db.pos.categories.find(x => x.id === +d.id); mform('Editar categoría', 'pos-category', `<div class="formgrid">${fld('Nombre', 'name', { value: c.name, req: true, full: true })}${sel('Tipo', 'kind', P.KINDS.map(x => [x, x]), c.kind)}${sel('Estación', 'station', P.STATIONS.map(x => [x, x]), c.station)}</div>`, 'Guardar categoría', c.id); },
+    'pos-cat-del': async d => { if (await confirmBox({ title: 'Eliminar categoría', message: '¿Eliminar esta categoría?', label: 'Eliminar', danger: true })) run(P.removeCategory(db, +d.id, actor()), 'Categoría eliminada.'); },
+    'pos-item-new': () => itemForm(null), 'pos-item-edit': d => itemForm(P.findItem(db, d.id)),
+    'pos-item-toggle': d => { const m = P.findItem(db, d.id); m.available = !m.available; save(); render(); },
+    'pos-item-del': async d => { if (await confirmBox({ title: 'Eliminar producto', message: '¿Eliminar este producto del menú?', label: 'Eliminar', danger: true })) run(P.removeItem(db, +d.id, actor()), 'Producto eliminado.'); },
+    'pos-product-new': () => openForm('product'), 'pos-movement': () => openForm('movement'),
+    'pos-waste': () => { if (!db.products.length) return toast('No hay productos en el inventario.', 'err'); mform('Registrar merma', 'pos-waste', `<div class="formgrid">${sel('Producto / ingrediente', 'productId', db.products.map(p => [p.id, `${p.name} · ${p.stock} ${p.unit || 'und'}`]), db.products[0].id, true)}${fld('Cantidad perdida', 'quantity', { type: 'number', attrs: 'min="0.001" step="any"', req: true })}${fld('Motivo (vencido, caída, error…)', 'reason', { req: true, full: true })}</div>`, 'Registrar merma'); },
+    'pos-export': () => { const r = P.report(db, { from: S.from, to: S.to }); downloadCSV('pos-productos', ['Producto', 'Cantidad', 'Ventas', 'Costo estimado'], r.byProduct.map(x => [x.key, x.qty, x.sales, x.cost])); toast('Archivo CSV generado.'); }
+  };
+  function itemForm(m) {
+    const r = m || {}, cats = db.pos.categories, rec = r.recipe || [], rows = [];
+    for (let i = 1; i <= 6; i++) { const x = rec[i - 1]; rows.push(`<div class="recipe-row">${sel('Ingrediente ' + i, 'ing' + i, [['', '—'], ...db.products.map(p => [p.id, `${p.name} (${p.unit || 'und'})`])], x ? x.productId : '')}${fld('Cantidad por porción', 'qty' + i, { type: 'number', value: x ? x.qty : '', attrs: 'min="0" step="any"' })}</div>`); }
+    mform(m ? 'Editar producto del menú' : 'Nuevo producto del menú', 'pos-item', `<div class="formgrid">${fld('Nombre', 'name', { value: r.name, req: true, full: true })}${sel('Categoría', 'categoryId', cats.map(c => [c.id, c.name]), r.categoryId || cats[0].id)}${sel('Estación', 'station', P.STATIONS.map(x => [x, x]), r.station || cats[0].station)}${fld('Precio de venta', 'price', { type: 'number', value: r.price ?? '', attrs: 'min="0" step="any"', req: true })}${fld('Costo fijo (opcional)', 'cost', { type: 'number', value: r.cost || '', attrs: 'min="0" step="any"' })}${sel('Disponibilidad', 'available', [['yes', 'Disponible'], ['no', 'Oculto']], r.available === false ? 'no' : 'yes')}${fld('Descripción', 'note', { value: r.note, full: true })}</div><h3>Receta (descuenta inventario)</h3><div class="formgrid">${rows.join('')}</div><p class="desc">Si dejas la receta vacía, el producto no descuenta inventario. Si no indicas costo fijo, se calcula desde la receta.</p>`, 'Guardar producto', r.id || '');
+  }
+  return { render, handleForm, actions: A, S };
+})();
+
+PAGES.pos = () => PosUI.render();
+Object.assign(ACTIONS, PosUI.actions);

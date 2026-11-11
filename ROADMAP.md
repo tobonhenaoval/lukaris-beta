@@ -36,3 +36,6 @@
 - Desarrollo simple y local durante la beta (backend local sin dependencias aprobado en 1.06).
 - No cambiar el stack ni activar infraestructura externa sin aprobación.
 - Producto multi-sector e internacional.
+
+## 1.12 (hecho)
+LK POS, multisector con 51 actividades, roles y PIN local, calendario, cola de WhatsApp, esquema 5. Siguiente: ver PENDIENTES.md.

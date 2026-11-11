@@ -18,4 +18,4 @@ LUKARIS se diseña para negocios de distintos sectores y países, no solo barber
 10. Ejecutar `npm test` antes de entregar cambios.
 
 ## Siguiente tarea recomendada
-Venta con varias líneas (productos/servicios), con descuentos e impuestos configurables por negocio.
+Ver PENDIENTES.md. Candidatas: cocina en tiempo real, venta general con varias líneas, varias cajas.

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 'use strict';
-/* Backend local de LUKARIS (sin dependencias).
+/* Backend local de LK ONE (sin dependencias).
    - GET/PUT /api/db        datos del negocio (JSON, escritura atómica, control de revisión)
    - POST/GET/DELETE /api/files/:id   adjuntos de clientes y citas
    - Sirve index.html, app.js, core.js y styles.css
@@ -8,7 +8,7 @@
 const http = require('http'), fs = require('fs'), path = require('path');
 const Core = require('./core.js');
 
-const STATIC = { '/': 'index.html', '/index.html': 'index.html', '/app.js': 'app.js', '/core.js': 'core.js', '/styles.css': 'styles.css' };
+const STATIC = { '/': 'index.html', '/index.html': 'index.html', '/app.js': 'app.js', '/core.js': 'core.js', '/catalog.js': 'catalog.js', '/pos-core.js': 'pos-core.js', '/pos-ui.js': 'pos-ui.js', '/automation-core.js': 'automation-core.js', '/styles.css': 'styles.css' };
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8' };
 const INLINE_OK = /^(image\/(png|jpe?g|gif|webp)|application\/pdf|text\/plain)$/;
 const MAX_DB = 25 * 1024 * 1024;
@@ -61,8 +61,8 @@ function createServer({ dataDir = path.join(__dirname, 'data'), host = '127.0.0.
       if (req.method === 'GET') return send(res, 200, { rev: state.rev, savedAt: state.savedAt, data: state.data });
       if (req.method === 'PUT') {
         let body; try { body = JSON.parse((await readBody(req, MAX_DB)).toString('utf8')); } catch (e) { if (e instanceof HttpError) throw e; throw new HttpError(400, 'JSON inválido.'); }
-        if (!body || !Core.isObj(body.data) || !Array.isArray(body.data.clients) || !Core.isObj(body.data.profile)) throw new HttpError(400, 'Los datos no tienen la estructura de LUKARIS.');
-        if (+body.data.meta?.schemaVersion > Core.SCHEMA_VERSION) throw new HttpError(400, 'Los datos son de una versión más nueva de LUKARIS.');
+        if (!body || !Core.isObj(body.data) || !Array.isArray(body.data.clients) || !Core.isObj(body.data.profile)) throw new HttpError(400, 'Los datos no tienen la estructura de LK ONE.');
+        if (+body.data.meta?.schemaVersion > Core.SCHEMA_VERSION) throw new HttpError(400, 'Los datos son de una versión más nueva de LK ONE.');
         if (!body.force && body.baseRev !== state.rev) return send(res, 409, { error: 'conflict', rev: state.rev, savedAt: state.savedAt, data: state.data });
         dailyBackup();
         state = { rev: state.rev + 1, savedAt: new Date().toISOString(), data: body.data };
@@ -122,5 +122,5 @@ module.exports = { createServer };
 if (require.main === module) {
   const port = +process.env.PORT || 3000, host = process.env.HOST || '127.0.0.1';
   const app = createServer({ dataDir: process.env.DATA_DIR || path.join(__dirname, 'data'), host });
-  app.listen(port).then(p => console.log(`LUKARIS ${Core.APP_VERSION} → http://${host === '0.0.0.0' ? 'localhost' : host}:${p}\nDatos en: ${app.dataDir}`));
+  app.listen(port).then(p => console.log(`LK ONE ${Core.APP_VERSION} → http://${host === '0.0.0.0' ? 'localhost' : host}:${p}\nDatos en: ${app.dataDir}`));
 }

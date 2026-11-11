@@ -1,0 +1,127 @@
+{
+ "profile": {
+  "name": "Mi negocio",
+  "type": "beauty",
+  "currency": "COP",
+  "country": "",
+  "language": "es",
+  "timezone": "America/Caracas",
+  "accountMode": "both",
+  "onboarded": false,
+  "modules": [
+   "crm",
+   "agenda"
+  ],
+  "appearance": {
+   "theme": "emerald",
+   "font": "system",
+   "scale": "normal",
+   "radius": "normal"
+  },
+  "modulesSet": true
+ },
+ "clients": [
+  {
+   "id": 1,
+   "name": "Alex Rivera",
+   "phone": "300 555 0101",
+   "email": "alex@example.com",
+   "notes": ""
+  },
+  {
+   "id": 2,
+   "name": "María Torres",
+   "phone": "310 555 0182",
+   "email": "maria@example.com",
+   "notes": ""
+  },
+  {
+   "id": 50,
+   "name": "Cliente 50",
+   "phone": "3000000000",
+   "email": ""
+  }
+ ],
+ "services": [
+  {
+   "id": 1,
+   "name": "Servicio inicial",
+   "price": 30000,
+   "duration": 30
+  },
+  {
+   "id": 2,
+   "name": "Servicio estándar",
+   "price": 45000,
+   "duration": 50
+  }
+ ],
+ "appointments": [
+  {
+   "id": 1,
+   "clientId": 1,
+   "serviceId": 2,
+   "date": "2026-11-10",
+   "time": "10:00",
+   "status": "Confirmada",
+   "price": 45000,
+   "notes": ""
+  }
+ ],
+ "payments": [
+  {
+   "id": 1,
+   "clientId": 1,
+   "description": "Servicio estándar",
+   "amount": 45000,
+   "date": "2026-11-10",
+   "method": "Efectivo"
+  }
+ ],
+ "products": [
+  {
+   "id": 1,
+   "name": "Producto de muestra",
+   "sku": "SKU-001",
+   "stock": 8,
+   "cost": 12000,
+   "price": 22000
+  }
+ ],
+ "orders": [
+  {
+   "id": 1,
+   "clientId": 2,
+   "vehicle": "Pedido #1001",
+   "detail": "Preparación y entrega de pedido",
+   "date": "2026-11-10",
+   "status": "En proceso",
+   "amount": 85000
+  }
+ ],
+ "meta": {
+  "nextId": 60,
+  "schemaVersion": 4,
+  "appVersion": "1.11"
+ },
+ "automations": {
+  "appointmentReminder": false,
+  "followup": false,
+  "birthday": false,
+  "lowStock": false,
+  "leadWelcome": false
+ },
+ "quotes": [],
+ "sales": [],
+ "inventoryMovements": [],
+ "attachments": [],
+ "organizationUnits": [
+  {
+   "id": 1,
+   "name": "Mi negocio",
+   "kind": "business",
+   "parentId": null,
+   "country": ""
+  }
+ ]
+}

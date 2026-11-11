@@ -1,3 +1,31 @@
+# Changelog
+
+## [1.12] - 2026-11-10
+### Añadido
+- **LK POS** (nuevo módulo para restaurantes, gastrobares, cafeterías, bares, comida rápida y heladerías): mesas con estados automáticos, pedidos con notas/cantidades, tablero de cocina por estación, pedidos para llevar y domicilio, pagos parciales y mixtos, propina e impuesto configurables, descuentos con autorización, dividir/mover/unir cuentas, cancelación y reembolso con motivo, caja con apertura, retiros, arqueo y diferencias, menú con recetas/inventario, mermas, alertas de stock y reportes (ventas, productos, meseros, métodos de pago, propinas, caja, mermas).
+- **Conexión entre módulos**: al cerrar una cuenta se crean la venta y los pagos en Comercial/Finanzas, se descuenta el inventario (una sola vez al enviar a cocina) y se registra el cliente si se asignó. Las ventas y pagos del POS están protegidos contra edición en otros módulos.
+- **Multisector real**: 51 actividades con buscador, módulos recomendados por actividad, ocultar módulos no aplicables sin borrar datos, cambio de actividad con modo recomendado/personalizado.
+- **Internacional**: buscador de países y monedas, formatos de fecha/hora/moneda por perfil, impuestos configurables por negocio.
+- **Equipo y permisos**: roles (administrador, gerente, empleado, mesero, cajero, cocina), inicio de sesión opcional con PIN (hash con sal), menús y acciones según rol.
+- **Citas**: vista de calendario, reprogramación, asignación equilibrada de profesionales y control de choques.
+- **Cola de WhatsApp** (sin proveedor): recordatorios 24 h y 4 h, liberación de turno a los 30 min solo tras un envío real, apertura manual vía wa.me. No hay envío automático (ver PENDIENTES.md).
+- Logo del negocio, temas ámbar e índigo, tema POS propio.
+- Esquema de datos 5 con migración desde 1.11 sin pérdida de datos.
+- 24 pruebas nuevas (15 de lógica POS/automatización, 4 de navegador, más ajustes).
+
+### Corregido
+- Condición de carrera del indicador «Guardado» (podía mostrarse antes de terminar de sincronizar).
+- Avisos emergentes que tapaban botones y perdían clics.
+- Pedido abierto de un usuario visible al cambiar de usuario.
+- Actividad del perfil mal derivada al migrar perfiles antiguos.
+- Turnos liberados seguían generando choques de agenda.
+- Marca visible: «LK ONE».
+- Pruebas de navegador: se bloquea la red externa y se cierran pestañas externas (wa.me).
+
+### Alcance y transparencia
+- Beta local de un solo negocio. El inicio con PIN es protección local básica, **no** autenticación de servidor.
+- No hay WhatsApp real, facturación fiscal, pagos en línea ni multiempresa. Ver PENDIENTES.md.
+
 ## [1.11] - 2026-11-10
 ### Añadido
 - Marca visible de la aplicación actualizada a **LK ONE**.

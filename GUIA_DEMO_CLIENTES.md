@@ -60,3 +60,10 @@ Esta es una beta local para validación y demostración, no el SaaS público lis
 - infraestructura cloud, alta disponibilidad, cifrado de adjuntos ni monitoreo productivo.
 
 No introduzcas información personal, financiera o clínica real de clientes en esta beta. Antes de comercializar el acceso a clientes reales hay que implementar seguridad, autenticación, aislamiento multi-tenant, privacidad, infraestructura y pruebas de aceptación.
+
+## Demo de LK POS (restaurantes y cafeterías)
+1. Configuración → actividad «Restaurante» → cargar ejemplo del POS.
+2. Abrir caja, abrir una mesa, agregar platos, enviar a cocina, marcar listo en el tablero.
+3. Cobrar con pago mixto y propina; ver el inventario descontado y la venta en Comercial.
+4. Dividir una cuenta, cerrar caja con arqueo y mostrar Reportes.
+Aclarar al cliente: WhatsApp es cola manual y el PIN es local.

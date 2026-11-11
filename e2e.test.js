@@ -12,6 +12,8 @@ const PAGES = ['home', 'appointments', 'clients', 'commercial', 'cash', 'service
 async function launch() { return chromium.launch(exe ? { executablePath: exe } : {}); }
 async function open(browser, url) {
   const ctx = await browser.newContext({ acceptDownloads: true, viewport: { width: 1280, height: 900 } }), pg = await ctx.newPage(), errors = [];
+  await ctx.route(u => !/^(http:\/\/127\.0\.0\.1|file:|data:|blob:)/.test(u.href), r => r.abort()); // sin red externa (wa.me, etc.)
+  ctx.on('page', p => { if (p !== pg) p.close().catch(() => {}); }); // cierra pestañas externas abiertas por la app
   pg.on('pageerror', e => errors.push('pageerror: ' + e.message)); pg.on('console', m => { if (m.type() === 'error') errors.push('console: ' + m.text()); });
   await pg.goto(url); await pg.waitForSelector('#app .stats'); return { ctx, pg, errors };
 }
@@ -104,9 +106,9 @@ test('servidor: flujo completo con clics reales, adjuntos y persistencia', { ski
     await pg.uncheck('[data-module=reports]'); assert.strictEqual(await pg.locator('[data-module=reports]').isChecked(), false);
     await pg.click('[data-act=new][data-type=unit]'); await fill(pg, { name: 'Sede Norte', kind: 'branch', parentId: '1' }); await submit(pg); assert.match(await pg.locator('#app').textContent(), /Sucursal de Clínica Luna/);
     await pg.click('.unit-row:has-text("Sede Norte") [data-act=delete]'); await pg.click('[data-act=confirm-yes]'); await pg.waitForFunction(() => !/Sede Norte/.test(document.querySelector('#app').textContent));
-    for (const k of ['clients', 'appointments', 'sales', 'payments', 'products']) { const [d] = await Promise.all([pg.waitForEvent('download'), pg.click(`[data-act=export-csv][data-kind=${k}]`)]); assert.match(d.suggestedFilename(), /^lukaris-.*\.csv$/); }
+    for (const k of ['clients', 'appointments', 'sales', 'payments', 'products']) { const [d] = await Promise.all([pg.waitForEvent('download'), pg.click(`[data-act=export-csv][data-kind=${k}]`)]); assert.match(d.suggestedFilename(), /^lkone-.*\.csv$/); }
     const [bk] = await Promise.all([pg.waitForEvent('download'), pg.click('[data-act=export-backup]')]); const bkFile = path.join(files, 'backup.json'); await bk.saveAs(bkFile);
-    const backup = JSON.parse(fs.readFileSync(bkFile, 'utf8')); assert.strictEqual(backup.schemaVersion, 4); assert.strictEqual(Object.keys(backup.files).length, backup.data.attachments.length);
+    const backup = JSON.parse(fs.readFileSync(bkFile, 'utf8')); assert.strictEqual(backup.schemaVersion, 5); assert.strictEqual(Object.keys(backup.files).length, backup.data.attachments.length);
     await pg.click('tr:has-text("Alex Rivera")').catch(() => {});
     // importar: primero un archivo ajeno (rechazo), luego el respaldo tras cambiar datos
     fs.writeFileSync(path.join(files, 'malo.json'), '{"x":1}'); await pg.setInputFiles('[data-import]', path.join(files, 'malo.json')); await pg.waitForSelector('.toast.err:has-text("estructura")');
@@ -174,7 +176,7 @@ test('migración: datos de la 1.05 en el navegador pasan al servidor la primera 
   await pg.addInitScript(d => { if (!localStorage.getItem('lukaris-beta-v02')) localStorage.setItem('lukaris-beta-v02', d); }, JSON.stringify(legacy));
   try {
     await pg.goto(base + '/'); await pg.waitForSelector('#app .stats'); await waitSaved(pg);
-    const data = await serverDb(base); assert.strictEqual(data.profile.name, 'Negocio viejo'); assert.strictEqual(data.meta.schemaVersion, 4);
+    const data = await serverDb(base); assert.strictEqual(data.profile.name, 'Negocio viejo'); assert.strictEqual(data.meta.schemaVersion, 5);
     assert.strictEqual(data.sales[0].paid, 30); assert.deepStrictEqual(data.attachments, []); assert.match(await pg.locator('#topbiz').textContent(), /Negocio viejo/);
   } finally { await ctx.close(); await browser.close(); await app.close(); }
 });

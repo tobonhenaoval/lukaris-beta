@@ -6,15 +6,17 @@
   else root.LukarisCore = factory();
 })(typeof self !== 'undefined' ? self : globalThis, function () {
 
-const APP_VERSION = '1.11', SCHEMA_VERSION = 4, KEY = 'lukaris-beta-v02';
+const Cat = typeof module === 'object' && module.exports ? require('./catalog.js') : globalThis.LKCatalog;
+const APP_VERSION = '1.12', SCHEMA_VERSION = 5, KEY = 'lukaris-beta-v02';
 const MAX_FILE_BYTES = 10 * 1024 * 1024;
 const FILE_EXT = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'pdf', 'doc', 'docx', 'xls', 'xlsx', 'csv', 'txt', 'ppt', 'pptx', 'odt', 'ods'];
-const APPT_STATUS = ['Confirmada', 'Pendiente', 'Atendida', 'Cancelada'];
+const APPT_STATUS = ['Confirmada', 'Pendiente', 'Atendida', 'Cancelada', 'Pendiente de reprogramación'];
 const ORDER_STATUS = ['Recibido', 'En proceso', 'Esperando repuesto', 'Listo para entregar', 'Entregado'];
 const METHODS = ['Efectivo', 'Transferencia', 'Tarjeta', 'Otro'];
-const MOVE_TYPES = ['Entrada', 'Salida', 'Ajuste'];
+const MOVE_TYPES = ['Entrada', 'Salida', 'Ajuste', 'Merma'];
 const OWNER_TYPES = ['client', 'appointment'];
-const LISTS = ['clients', 'services', 'appointments', 'payments', 'products', 'orders', 'quotes', 'sales', 'inventoryMovements', 'attachments'];
+const LISTS = ['clients', 'services', 'appointments', 'payments', 'products', 'orders', 'quotes', 'sales', 'inventoryMovements', 'attachments', 'users', 'outbox'];
+const r2 = n => Math.round((+n || 0) * 100) / 100, r3 = n => Math.round((+n || 0) * 1000) / 1000;
 
 // ---------- utilidades ----------
 const pad = n => String(n).padStart(2, '0');
@@ -51,8 +53,12 @@ const activeSales = db => db.sales.filter(s => !s.voided);
 // ---------- datos iniciales y migración ----------
 function defaultProfile() {
   let tz = 'UTC'; try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'; } catch (e) {}
-  return { name: 'Mi negocio', type: 'services', currency: 'COP', country: '', language: 'es', timezone: tz, accountMode: 'both', onboarded: false, modules: [], appearance: { theme: 'emerald', font: 'system', scale: 'normal', radius: 'normal' } };
+  return { name: 'Mi negocio', type: 'services', activity: 'professional_services', currency: 'COP', country: '', language: 'es', timezone: tz, dateFormat: 'auto', timeFormat: '24h', logo: '', accountMode: 'both', onboarded: false, modules: [], appearance: { theme: 'emerald', font: 'system', scale: 'normal', radius: 'normal' } };
 }
+function defaultPos() {
+  return { settings: { taxRate: 0, taxIncluded: false, tipPercent: 10, allowNegativeStock: false, extraMethods: [], stations: ['Cocina', 'Bebidas', 'Postres', 'Barra'] }, counters: { order: 0, shift: 0 }, tables: [], categories: [], menu: [], orders: [], shifts: [], waste: [], notifications: [] };
+}
+const recommendedModules = profile => { const a = Cat.findActivity(profile && profile.activity); return a ? a.modules.slice() : (Cat.findActivity(Cat.SECTOR_DEFAULT_ACTIVITY[profile && profile.type]) || Cat.findActivity('other')).modules.slice(); };
 function defaultDb() {
   const d = today();
   return migrate({
@@ -69,19 +75,29 @@ function defaultDb() {
 function migrate(raw) {
   const db = isObj(raw) ? clone(raw) : {};
   db.meta = isObj(db.meta) ? db.meta : {};
-  db.profile = { ...defaultProfile(), ...(isObj(db.profile) ? db.profile : {}) };
+  { const rp = isObj(db.profile) ? db.profile : {}; db.profile = { ...defaultProfile(), ...rp, ...(rp.activity ? {} : { activity: Cat.SECTOR_DEFAULT_ACTIVITY[rp.type] || 'professional_services' }) }; }
   if (!Array.isArray(db.profile.modules)) db.profile.modules = [];
   db.profile.appearance = { theme: 'emerald', font: 'system', scale: 'normal', radius: 'normal', ...(isObj(db.profile.appearance) ? db.profile.appearance : {}) };
+  if (!Cat.findActivity(db.profile.activity)) db.profile.activity = Cat.SECTOR_DEFAULT_ACTIVITY[db.profile.type] || 'other';
+  if (db.profile.modulesSet && !db.profile.modules.includes('automations') && !db.meta.modAutoMigrated) { db.profile.modules.push('automations'); db.meta.modAutoMigrated = true; }
+  db.pos = isObj(db.pos) ? db.pos : {}; { const d = defaultPos(); db.pos.settings = { ...d.settings, ...(isObj(db.pos.settings) ? db.pos.settings : {}) }; db.pos.counters = { ...d.counters, ...(isObj(db.pos.counters) ? db.pos.counters : {}) }; for (const k of ['tables', 'categories', 'menu', 'orders', 'shifts', 'waste', 'notifications']) if (!Array.isArray(db.pos[k])) db.pos[k] = []; }
+  db.auth = { enabled: false, ...(isObj(db.auth) ? db.auth : {}) };
+  db.integrations = { whatsapp: { provider: 'none', status: 'No conectado', phoneNumberId: '', businessAccountId: '', ...(isObj(db.integrations && db.integrations.whatsapp) ? db.integrations.whatsapp : {}) } };
   db.automations = isObj(db.automations) ? db.automations : { appointmentReminder: false, followup: false, birthday: false, lowStock: false, leadWelcome: false };
   for (const k of LISTS) if (!Array.isArray(db[k])) db[k] = [];
   if (!Array.isArray(db.organizationUnits) || !db.organizationUnits.length)
     db.organizationUnits = [{ id: 1, name: db.profile.name || 'Mi negocio', kind: 'business', parentId: null, country: db.profile.country || '' }];
-  for (const a of db.appointments) { a.status = APPT_STATUS.includes(a.status) ? a.status : 'Pendiente'; a.price = +a.price || 0; a.notes = a.notes || ''; }
+  for (const a of db.appointments) { a.status = APPT_STATUS.includes(a.status) ? a.status : 'Pendiente'; a.price = +a.price || 0; a.notes = a.notes || ''; if (a.workerId == null) a.workerId = null; }
   for (const c of db.clients) { c.phone = c.phone || ''; c.email = c.email || ''; c.notes = c.notes || ''; }
   let max = 0;
-  for (const k of [...LISTS, 'organizationUnits']) for (const r of db[k]) { const n = +r.id; if (Number.isFinite(n) && n > max) max = n; }
+  const seen = r => { const n = +(r && r.id); if (Number.isFinite(n) && n > max) max = n; };
+  for (const k of [...LISTS, 'organizationUnits']) for (const r of db[k]) seen(r);
+  for (const k of ['tables', 'categories', 'menu', 'waste', 'notifications']) for (const r of db.pos[k]) seen(r);
+  for (const o of db.pos.orders) { seen(o); for (const l of o.lines || []) seen(l); for (const x of o.payments || []) seen(x); }
+  for (const sh of db.pos.shifts) { seen(sh); for (const m of sh.movements || []) seen(m); }
   db.meta.nextId = Math.max(+db.meta.nextId || 0, max + 1);
   db.meta.schemaVersion = SCHEMA_VERSION;
+  for (const u of db.users) { u.active = u.active !== false; u.role = Cat.ROLES[u.role] ? u.role : 'employee'; }
   db.meta.appVersion = APP_VERSION;
   return db;
 }
@@ -130,12 +146,15 @@ function validate(type, raw, db, ctx = {}) {
     case 'appointment':
       ref('clientId', db.clients, 'Selecciona un cliente.'); ref('serviceId', db.services, 'Selecciona un servicio.');
       date('date'); { const t = String(get('time') ?? ''); if (!TIME_RE.test(t)) errors.time = 'Hora inválida.'; value.time = t; }
-      oneOf('status', APPT_STATUS); number('price'); text('notes', { max: 500 }); break;
+      oneOf('status', APPT_STATUS); number('price'); text('notes', { max: 500 });
+      { const w = String(get('workerId') ?? ''); if (!w) value.workerId = null; else if (w === 'auto') value.workerId = 'auto'; else { const u = db.users.find(x => x.id === Number(w) && x.active !== false); if (!u) errors.workerId = 'Profesional inexistente.'; value.workerId = u ? u.id : null; } }
+      break;
     case 'product': {
       text('name', { req: true, max: 120 }); const sku = text('sku', { max: 40 });
       if (sku && db.products.some(p => p.sku && p.sku.toLowerCase() === sku.toLowerCase() && p.id !== ctx.editId)) errors.sku = 'Ya existe un producto con ese SKU.';
-      if (!ctx.editId) number('stock', { int: true, req: false });
-      number('cost', { req: false }); number('price', { req: false }); break;
+      if (!ctx.editId) number('stock', { req: false });
+      { const u = text('unit', { max: 12 }); if (!u) value.unit = 'und'; }
+      number('cost', { req: false }); number('price', { req: false }); number('minStock', { req: false }); break;
     }
     case 'order':
       ref('clientId', db.clients, 'Selecciona un cliente.'); text('vehicle', { req: true, max: 120 }); text('detail', { req: true, max: 500 });
@@ -169,8 +188,8 @@ function validate(type, raw, db, ctx = {}) {
     }
     case 'movement': {
       const p = ref('productId', db.products, 'Selecciona un producto.'); oneOf('type', MOVE_TYPES);
-      const q = number('quantity', { min: value.type === 'Ajuste' ? 0 : 1, int: true });
-      if (p && !errors.quantity && value.type === 'Salida' && q > p.stock) errors.quantity = `Solo hay ${p.stock} en existencias.`;
+      const q = number('quantity', { min: value.type === 'Ajuste' ? 0 : 0.001 });
+      if (p && !errors.quantity && (value.type === 'Salida' || value.type === 'Merma') && q > p.stock) errors.quantity = `Solo hay ${p.stock} en existencias.`;
       date('date'); text('reason', { max: 200 }); break;
     }
     case 'unit': {
@@ -182,13 +201,24 @@ function validate(type, raw, db, ctx = {}) {
       break;
     }
     case 'profile': {
-      text('name', { req: true, max: 120 }); text('country', { max: 60 });
-      oneOf('type', ['retail', 'services', 'beauty', 'food', 'health', 'education', 'construction', 'automotive', 'logistics', 'hospitality', 'digital', 'other']);
-      oneOf('currency', ['COP', 'USD', 'EUR', 'GBP', 'MXN', 'PEN', 'CLP', 'ARS', 'BRL']); oneOf('language', ['es', 'en', 'pt', 'fr']);
+      text('name', { req: true, max: 120 });
+      { const cs = text('country', { max: 60 }); if (cs) { const c = Cat.findCountry(cs); if (!c) errors.country = 'Selecciona un país de la lista.'; else value.country = c[0]; } }
+      if (get('activity') != null && String(get('activity')).trim() !== '') { const a = Cat.findActivity(get('activity')); if (!a) errors.activity = 'Selecciona una actividad de la lista.'; else { value.activity = a.id; value.type = a.sector; } }
+      else oneOf('type', Cat.SECTORS);
+      oneOf('currency', Cat.CURRENCY_CODES); oneOf('language', ['es', 'en', 'pt', 'fr']);
+      if (get('dateFormat') != null) oneOf('dateFormat', ['auto', 'DMY', 'MDY', 'YMD']); if (get('timeFormat') != null) oneOf('timeFormat', ['24h', '12h']);
       oneOf('accountMode', ['single', 'group', 'both']);
       const tz = text('timezone', { req: true, max: 60 });
       if (tz && !errors.timezone) { try { new Intl.DateTimeFormat('es', { timeZone: tz }); } catch (e) { errors.timezone = 'Zona horaria inválida (ej. America/Bogota).'; } }
       break;
+    }
+    case 'user': {
+      text('name', { req: true, max: 80 }); oneOf('role', Object.keys(Cat.ROLES));
+      if (db.users.some(u => u.name.toLowerCase() === value.name.toLowerCase() && u.id !== ctx.editId)) errors.name = 'Ya existe un usuario con ese nombre.';
+      const pin = String(get('pin') ?? '').trim();
+      if (pin && !/^\d{4,8}$/.test(pin)) errors.pin = 'El PIN debe tener de 4 a 8 dígitos.';
+      if (!pin && !ctx.editId && db.auth.enabled) errors.pin = 'Indica un PIN (4 a 8 dígitos).';
+      value.pin = pin; value.active = get('active') !== 'no'; break;
     }
     default: errors._ = 'Tipo desconocido.';
   }
@@ -197,10 +227,10 @@ function validate(type, raw, db, ctx = {}) {
 
 // ---------- agenda ----------
 const toMin = t => { const [h, m] = String(t).split(':').map(Number); return h * 60 + m; };
-function appointmentConflicts(db, { date, time, serviceId }, ignoreId = null) {
+function appointmentConflicts(db, { date, time, serviceId, workerId }, ignoreId = null) {
   const dur = id => +(db.services.find(s => s.id === +id)?.duration) || 30;
   const s1 = toMin(time), e1 = s1 + dur(serviceId);
-  return db.appointments.filter(a => a.id !== ignoreId && a.date === date && a.status !== 'Cancelada' && (() => {
+  return db.appointments.filter(a => a.id !== ignoreId && a.date === date && a.status !== 'Cancelada' && a.status !== 'Pendiente de reprogramación' && !(workerId && workerId !== 'auto' && a.workerId && a.workerId !== workerId) && (() => {
     const s2 = toMin(a.time), e2 = s2 + dur(a.serviceId); return s1 < e2 && s2 < e1;
   })());
 }
@@ -211,6 +241,11 @@ const COLLECTION = { client: 'clients', service: 'services', appointment: 'appoi
 
 function commit(db, type, v, editId = null) {
   const now = new Date().toISOString();
+  if (type === 'user') {
+    const apply = r => { r.name = v.name; r.role = v.role; r.active = v.active; if (v.pin) { r.salt = Cat.newSalt(); r.pinHash = Cat.hashPin(v.pin, r.salt); } };
+    if (editId) { const r = db.users.find(x => x.id === editId); if (!r) return fail('El usuario ya no existe.'); if ((r.role === 'admin' && (v.role !== 'admin' || !v.active)) && !db.users.some(u => u.id !== r.id && u.role === 'admin' && u.active)) return fail('Debe quedar al menos un administrador activo.'); apply(r); r.updatedAt = now; return { ok: true, id: r.id }; }
+    const r = { id: nextId(db), createdAt: now }; apply(r); db.users.push(r); return { ok: true, id: r.id };
+  }
   if (type === 'profile') {
     db.profile = { ...db.profile, ...v, onboarded: true };
     if (db.organizationUnits.length === 1 && db.organizationUnits[0].kind === 'business') db.organizationUnits[0].name = v.name;
@@ -230,6 +265,7 @@ function commit(db, type, v, editId = null) {
   if (type === 'sale') {
     if (editId) {
       const s = db.sales.find(x => x.id === editId); if (!s) return fail('La venta ya no existe.'); if (s.voided) return fail('La venta está anulada.');
+      if (s.posOrderId) return fail('Esta venta viene de LK POS: no se edita aquí.');
       Object.assign(s, { clientId: v.clientId, description: v.description, date: v.date, total: v.total, updatedAt: now });
       for (const p of db.payments) if (p.saleId === s.id) p.clientId = s.clientId;
       return { ok: true, id: s.id };
@@ -249,8 +285,8 @@ function commit(db, type, v, editId = null) {
   }
   if (type === 'movement') {
     const p = db.products.find(x => x.id === v.productId); if (!p) return fail('Producto inexistente.');
-    if (v.type === 'Salida' && p.stock < v.quantity) return fail('No hay existencias suficientes.');
-    if (v.type === 'Entrada') p.stock += v.quantity; if (v.type === 'Salida') p.stock -= v.quantity; if (v.type === 'Ajuste') p.stock = v.quantity;
+    if ((v.type === 'Salida' || v.type === 'Merma') && p.stock < v.quantity) return fail('No hay existencias suficientes.');
+    if (v.type === 'Entrada') p.stock = r3(p.stock + v.quantity); if (v.type === 'Salida' || v.type === 'Merma') p.stock = r3(p.stock - v.quantity); if (v.type === 'Ajuste') p.stock = r3(v.quantity);
     const id = nextId(db); db.inventoryMovements.push({ id, productId: p.id, type: v.type, quantity: v.quantity, date: v.date, reason: v.reason || '' }); return { ok: true, id };
   }
   return fail('Tipo desconocido.');
@@ -263,6 +299,7 @@ function convertQuote(db, id) {
 }
 function voidSale(db, id) {
   const s = db.sales.find(x => x.id === id); if (!s) return fail('La venta no existe.'); if (s.voided) return fail('La venta ya está anulada.');
+  if (s.posOrderId) return fail('Esta venta viene de LK POS: usa el reembolso desde LK POS.');
   if ((+s.paid || 0) > 0) return fail('La venta tiene pagos registrados. Elimina primero esos pagos en Finanzas.');
   s.voided = true; s.voidedAt = new Date().toISOString();
   const p = s.productId && db.products.find(x => x.id === s.productId);
@@ -270,10 +307,18 @@ function voidSale(db, id) {
   const q = s.quoteId && db.quotes.find(x => x.id === s.quoteId); if (q) q.status = 'Pendiente';
   return { ok: true };
 }
+function rescheduleAppointment(db, id, { date, time, workerId }) {
+  const a = db.appointments.find(x => x.id === id); if (!a) return fail('La cita ya no existe.');
+  if (!validDate(date)) return fail('Fecha inválida.'); if (!TIME_RE.test(String(time))) return fail('Hora inválida.');
+  if (a.status === 'Atendida') return fail('Una cita atendida no se reprograma.');
+  const w = workerId === undefined ? a.workerId : workerId;
+  const cf = appointmentConflicts(db, { date, time, serviceId: a.serviceId, workerId: w }, a.id); if (cf.length) return { ok: false, error: 'Ya hay una cita en ese horario.', conflicts: cf };
+  a.rescheduledFrom = { date: a.date, time: a.time }; a.date = date; a.time = time; a.workerId = w; if (a.status === 'Cancelada' || a.status === 'Pendiente de reprogramación') a.status = 'Pendiente'; a.updatedAt = new Date().toISOString(); return { ok: true };
+}
 const usage = (db, key, id) => ({
-  client: () => ({ citas: db.appointments.filter(x => x.clientId === id).length, cotizaciones: db.quotes.filter(x => x.clientId === id).length, ventas: db.sales.filter(x => x.clientId === id).length, pagos: db.payments.filter(x => x.clientId === id).length, operaciones: db.orders.filter(x => x.clientId === id).length }),
+  client: () => ({ citas: db.appointments.filter(x => x.clientId === id).length, cotizaciones: db.quotes.filter(x => x.clientId === id).length, ventas: db.sales.filter(x => x.clientId === id).length, pagos: db.payments.filter(x => x.clientId === id).length, operaciones: db.orders.filter(x => x.clientId === id).length, 'pedidos POS': db.pos.orders.filter(x => x.clientId === id).length }),
   service: () => ({ citas: db.appointments.filter(x => x.serviceId === id).length }),
-  product: () => ({ ventas: db.sales.filter(x => x.productId === id).length, movimientos: db.inventoryMovements.filter(x => x.productId === id).length })
+  product: () => ({ ventas: db.sales.filter(x => x.productId === id).length, movimientos: db.inventoryMovements.filter(x => x.productId === id).length, 'recetas de LK POS': db.pos.menu.filter(m => (m.recipe || []).some(r => r.productId === id)).length })
 }[key]());
 const usageText = u => Object.entries(u).filter(([, n]) => n).map(([k, n]) => `${n} ${k}`).join(', ');
 
@@ -295,8 +340,16 @@ function remove(db, type, id) {
   }
   if (type === 'payment') {
     const p = db.payments.find(x => x.id === id); if (!p) return fail('El pago ya no existe.');
+    if (p.posOrderId) return fail('Este pago viene de LK POS: usa el reembolso desde LK POS.');
     if (p.saleId) { const s = db.sales.find(x => x.id === p.saleId); if (s) s.paid = Math.max(0, (+s.paid || 0) - (+p.amount || 0)); }
     take('payments'); return { ok: true, removedFiles };
+  }
+  if (type === 'user') {
+    const u = db.users.find(x => x.id === id); if (!u) return fail('El usuario ya no existe.');
+    if (u.role === 'admin' && !db.users.some(x => x.id !== id && x.role === 'admin' && x.active)) return fail('Debe quedar al menos un administrador activo.');
+    const used = db.pos.orders.some(o => o.waiterId === id || o.openedBy === id) || db.pos.shifts.some(sh => sh.openedBy === id) || db.appointments.some(a => a.workerId === id) || db.pos.tables.some(t => t.waiterId === id);
+    if (used) return fail('Tiene historial o asignaciones. Desactívalo en lugar de eliminarlo.');
+    take('users'); return { ok: true, removedFiles };
   }
   if (type === 'unit') {
     const u = db.organizationUnits.find(x => x.id === id); if (!u) return fail('La unidad ya no existe.');
@@ -330,7 +383,8 @@ function summary(db, d = today()) {
 }
 
 return { APP_VERSION, SCHEMA_VERSION, KEY, MAX_FILE_BYTES, FILE_EXT, APPT_STATUS, ORDER_STATUS, METHODS, MOVE_TYPES,
-  today, addDays, esc, money, formatBytes, csvCell, fileExt, validateFile, saleBalance, saleStatus, activeSales,
+  today, addDays, isoDate, esc, money, formatBytes, csvCell, fileExt, validateFile, saleBalance, saleStatus, activeSales,
+  r2, r3, Cat, can: Cat.can, ROLES: Cat.ROLES, defaultPos, recommendedModules, rescheduleAppointment, ADMIN_ACTOR: Cat.ADMIN_ACTOR,
   defaultDb, defaultProfile, migrate, nextId, validate, appointmentConflicts, commit, convertQuote, voidSale, remove, usage, usageText,
   addAttachment, removeAttachment, attachmentsOf, summary, clone, isObj };
 });

@@ -8,7 +8,7 @@
 - Modelo comercial global: planes por niveles y complementos, con localización por mercado.
 - Mantener el desarrollo simple y local durante esta beta; no migrar el stack sin aprobación.
 - Producto multi-sector e internacional; no limitarlo a barberías ni a un país.
-- La marca del producto es LUKARIS.
+- La marca visible del producto es **LK ONE** (el nombre técnico del paquete sigue siendo lukaris).
 
 ## Reglas de negocio implementadas
 - Las cotizaciones se crean con cliente, concepto, importe y vigencia; solo las pendientes pueden convertirse en venta.
@@ -35,3 +35,13 @@
 - Las existencias solo cambian por movimientos o ventas (la edición de producto no toca el stock).
 - Fechas en zona horaria local del navegador, no UTC. Ids con contador `meta.nextId`.
 - Sin manejadores `on*=` en línea (lo verifica `npm test`); toda acción pasa por `data-act`.
+
+## Reglas añadidas en 1.12
+- LK POS es módulo opcional, recomendado solo para actividades de gastronomía; ocultar módulos no borra datos.
+- Inventario: se descuenta una vez por línea al enviar a cocina; cancelar repone o registra merma según elección.
+- Venta y pagos del POS se crean al cerrar la cuenta y no se editan desde Comercial/Finanzas; reembolso = pagos negativos + venta anulada + ajuste de caja.
+- Impuesto y propina quedan fijados por pedido; descuentos requieren permiso.
+- Un solo turno de caja abierto a la vez; los pagos exigen caja abierta.
+- Roles: administrador, gerente, empleado, mesero, cajero, cocina. PIN con sal: protección local, no autenticación de servidor.
+- WhatsApp: solo cola y apertura manual; un turno se libera únicamente tras un recordatorio realmente enviado y 30 min sin respuesta.
+- Esquema 5; migración desde 1.11 sin pérdida de datos.
