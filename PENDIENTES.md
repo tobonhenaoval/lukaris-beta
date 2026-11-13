@@ -1,4 +1,4 @@
-# LK ONE 1.13.6 · Pendientes y límites transparentes
+# LK ONE 1.13.7 · Pendientes y límites transparentes
 
 ## Funciones que requieren infraestructura o proveedor
 - WhatsApp automático: proveedor oficial, credenciales, webhooks y tareas programadas.

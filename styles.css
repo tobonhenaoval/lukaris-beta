@@ -95,7 +95,7 @@ body.dark-mode .top{background:#131e28}body.dark-mode .side{background:var(--sid
 @media(max-width:850px){.summary-stats{grid-template-columns:repeat(3,minmax(0,1fr))}}
 @media(max-width:600px){.summary-stats{grid-template-columns:repeat(2,minmax(0,1fr))}.summary-stats .stat:last-child{grid-column:1/-1}.daychecks{grid-template-columns:repeat(2,minmax(0,1fr))}}
 
-/* LK ONE 1.13.6 · interfaz fluida y dashboard configurable */
+/* LK ONE 1.13.7 · interfaz fluida y dashboard configurable */
 :root{scroll-behavior:smooth}
 body{line-height:1.5;-webkit-font-smoothing:antialiased}
 button,.card,.stat,.nav button,.quick button,.metric-card,.activity-item{transition:background-color .18s ease,border-color .18s ease,box-shadow .18s ease,transform .18s ease}
@@ -166,7 +166,7 @@ body.dark-mode .alert-line{background:#1b303a;color:var(--ink)}
 }
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;transition:none!important;animation:none!important}}
 
-/* 1.13.6 · selectores dobles: escribir para filtrar y elegir de una lista visible */
+/* 1.13.7 · selectores dobles: escribir para filtrar y elegir de una lista visible */
 .choice-field{min-width:0}
 .choice-field>span{display:block}
 .choice-field .choice-search{width:100%;min-height:38px;padding:8px 11px;border:1px solid var(--line);border-radius:10px;background:#fff;color:var(--ink);font-size:12px;font-weight:400}
@@ -174,3 +174,44 @@ body.dark-mode .alert-line{background:#1b303a;color:var(--ink)}
 .choice-field .choice-search::placeholder{color:#8996a3}
 .choice-field .choice-search:focus-visible,.choice-field select:focus-visible{outline:3px solid color-mix(in srgb,var(--brand) 35%,transparent);outline-offset:2px}
 body.dark-mode .choice-field .choice-search{background:#17232e;color:var(--ink);border-color:var(--line)}
+
+/* LK ONE 1.13.7 · interfaz simplificada y sin solapamientos */
+.choice-field{min-width:0;display:flex;flex-direction:column;gap:7px}
+.choice-field select{display:block;width:100%;min-width:0;min-height:44px;padding:10px 38px 10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--card,#fff);color:var(--ink);font-size:13px}
+.formgrid,.grid2,.dashboard-lower,.dashboard-grid,.module-grid,.plan-grid{min-width:0}
+.formgrid>*{min-width:0;max-width:100%}
+.field input,.field select,.field textarea,.toolbar input,.toolbar select,.filters input,.filters select{min-width:0;max-width:100%}
+.card,.stat,.dashboard-card,.metric-card,.automation-card,.pos-workspace{min-width:0;overflow-wrap:anywhere}
+.tablewrap{max-width:100%;overscroll-behavior-x:contain}
+.actions,.inline-actions,.rowactions,.toolbar,.filters,.topright{min-width:0;flex-wrap:wrap}
+.actions>* ,.inline-actions>* ,.rowactions>*{max-width:100%}
+.modalback,.loginback{padding:clamp(8px,2vw,22px)}
+.modal{width:min(680px,100%);max-height:min(90dvh,900px);overflow:auto;overscroll-behavior:contain}
+.top{gap:12px;min-width:0}.topright{justify-content:flex-end;gap:10px}.bizname{max-width:24vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+@media(max-width:760px){
+ .top{height:auto;min-height:54px;padding:9px 12px;align-items:flex-start;flex-direction:column}
+ .topright{width:100%;justify-content:flex-start}
+ .bizname{max-width:42vw}
+ .content{min-width:0;padding:16px 12px 28px}
+ .heading{align-items:flex-start;flex-direction:column}
+ .heading .inline-actions{width:100%}
+ .stats,.summary-stats{grid-template-columns:repeat(2,minmax(0,1fr))}
+ .formgrid{grid-template-columns:minmax(0,1fr)}
+ .field.full{grid-column:auto}
+ .unit-row{align-items:flex-start;flex-direction:column}
+ .unit-row .rowactions{justify-content:flex-start}
+ .kv{grid-template-columns:minmax(90px, .45fr) minmax(0,1fr);overflow-wrap:anywhere}
+ .actions{justify-content:stretch}
+ .actions>.btn{flex:1 1 130px}
+}
+@media(max-width:420px){
+ .nav button{font-size:11px;padding:7px 9px}
+ .savestate{font-size:10px}
+ .dashboard-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+ .metric-card{padding:11px;min-height:112px}
+ .metric-card strong{font-size:19px}
+ .stats .stat{padding:11px}
+ .stats .stat strong{font-size:19px}
+ .modal{padding:16px;border-radius:12px}
+ .btn{white-space:normal}
+}

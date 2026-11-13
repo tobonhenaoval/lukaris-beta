@@ -7,7 +7,7 @@
 })(typeof self !== 'undefined' ? self : globalThis, function () {
 
 const Cat = typeof module === 'object' && module.exports ? require('./catalog.js') : globalThis.LKCatalog;
-const APP_VERSION = '1.13.6', SCHEMA_VERSION = 9, KEY = 'lukaris-beta-v02';
+const APP_VERSION = '1.13.7', SCHEMA_VERSION = 9, KEY = 'lukaris-beta-v02';
 const MAX_FILE_BYTES = 10 * 1024 * 1024;
 const FILE_EXT = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'pdf', 'doc', 'docx', 'xls', 'xlsx', 'csv', 'txt', 'ppt', 'pptx', 'odt', 'ods'];
 const APPT_STATUS = ['Confirmada', 'Pendiente', 'Atendida', 'Cancelada', 'Pendiente de reprogramación'];

@@ -1,6 +1,6 @@
-# LK ONE — Versión 1.13.6 (beta local, sin backend obligatorio)
+# LK ONE — Versión 1.13.7 (beta local, sin backend obligatorio)
 
-Plataforma de gestión configurable para negocios de distintos sectores y países. Esta entrega prioriza una interfaz más clara, una navegación más natural, un Dashboard configurable y controles de selección que permiten tanto buscar como elegir de listas desplegables.
+Plataforma de gestión configurable para negocios de distintos sectores y países. Esta entrega prioriza una interfaz más clara, una navegación más natural, un Dashboard configurable y controles de selección unificados, con una sola lista por campo y sin barras de escritura duplicadas.
 
 ## Abrir la beta
 
@@ -11,12 +11,12 @@ Plataforma de gestión configurable para negocios de distintos sectores y paíse
 
 No es necesario ejecutar `npm start` ni instalar dependencias para probar la modalidad local. `server.js` se conserva como herramienta opcional del proyecto; esta entrega puede probarse abriendo `index.html`.
 
-## Novedades de 1.13.6
+## Novedades de 1.13.7
 
 - Interfaz más fluida: jerarquía visual, espaciado, controles, transiciones suaves y estados de foco más claros.
 - Dashboard dentro de Resumen con métricas, tendencias, actividad reciente, próximas citas y alertas operativas.
 - Dashboard personalizable por usuario: cada persona puede elegir qué widgets mostrar en su Resumen.
-- Selectores dobles en la interfaz general y en LK POS: cada lista conserva el desplegable tradicional y añade un campo para escribir y filtrar opciones. Así se puede buscar y después elegir sin perder la lista visible.
+- Selectores simplificados: una sola lista desplegable por campo; actividad, país y zona horaria se eligen de opciones predefinidas.
 - Los campos de texto libre siguen permitiendo escribir datos nuevos cuando el tipo de información lo permite; los campos relacionales (por ejemplo, cliente, profesional o producto) siguen requiriendo seleccionar un registro existente para preservar la integridad de los datos.
 - Diseño adaptable a escritorio y móvil, con respeto a la preferencia de movimiento reducido del sistema.
 - Se conservan las mejoras anteriores: ficha de clientes por documento, equipo, horarios, vacaciones, avisos de pedidos y funciones de LK POS.

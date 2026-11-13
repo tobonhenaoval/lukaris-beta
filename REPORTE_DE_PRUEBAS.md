@@ -1,4 +1,4 @@
-# LK ONE 1.13.6 · Reporte de pruebas
+# LK ONE 1.13.7 · Reporte de pruebas
 
 **Fecha:** 2026-11-11 · **Comando:** `npm test` · **Entorno:** Node 18+.
 
@@ -6,7 +6,7 @@
 
 Las nueve pruebas omitidas requieren Playwright para ejecutar flujos reales en navegador. No se declara aprobada la prueba visual ni la navegación end-to-end en esta ejecución.
 
-## Cobertura verificada en 1.13.6
+## Cobertura verificada en 1.13.7
 - Sintaxis JavaScript de todos los módulos.
 - Coherencia de versión entre core, paquete, documentación e interfaz.
 - Selectores compartidos: búsqueda escrita para filtrar opciones y desplegable visible para elegirlas, aplicados a la interfaz general y a LK POS.

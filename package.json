@@ -1,6 +1,6 @@
 {
   "name": "lukaris",
-  "version": "1.13.6",
+  "version": "1.13.7",
   "private": true,
   "description": "LK ONE: plataforma de gestión multisectorial con LK POS (beta local sin backend obligatorio).",
   "scripts": {

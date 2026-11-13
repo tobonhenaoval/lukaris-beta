@@ -21,12 +21,14 @@ test('app.js no usa manejadores en línea ni localStorage fuera de Store', () =>
   assert.doesNotMatch(js, /\b(alert|prompt)\(/);
 });
 
-test('1.13.6: los selectores de la interfaz y LK POS incluyen búsqueda y lista seleccionable', () => {
+test('1.13.7: los selectores usan un único control de opciones, sin barra duplicada', () => {
   const app = read('app.js'), css = read('styles.css');
-  assert.match(app, /data-select-search/);
-  assert.match(app, /data-choice-select/);
-  assert.match(app, /option\.hidden/);
-  assert.match(css, /\.choice-field/);
+  assert.match(app, /const sel = \(label, name, options, value/);
+  assert.doesNotMatch(app, /data-select-search|choice-search|data-choice-select/);
+  assert.match(app, /sel\('Actividad principal'/);
+  assert.match(app, /sel\('País'/);
+  assert.match(app, /sel\('Zona horaria'/);
+  assert.match(css, /\.choice-field select/);
   assert.match(read('pos-ui.js'), /sel\('/);
 });
 

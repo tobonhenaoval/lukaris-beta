@@ -1,4 +1,4 @@
-# LK ONE 1.13.6 · Guía de uso
+# LK ONE 1.13.7 · Guía de uso
 
 ## 1. Arrancar
 `npm start` y abrir http://localhost:3000 (Node 18+, sin instalar nada). También funciona abriendo `index.html` (guarda en el navegador).

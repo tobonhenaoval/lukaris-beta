@@ -1,12 +1,12 @@
 # Changelog
 
-## [1.13.6] - 2026-11-11
+## [1.13.7] - 2026-11-11
 ### Interfaz y experiencia de uso
 - Se suaviza la interfaz con mejor jerarquía visual, espacios, controles, transiciones y estados de foco.
 - Dashboard dentro de Resumen con métricas, tendencias, actividad, próximas citas y alertas; sus widgets se pueden personalizar por usuario.
-- Todos los selectores compartidos por la interfaz de negocio y LK POS incluyen un campo de búsqueda que filtra las opciones y conservan el desplegable para elegir directamente.
-- Los campos relacionales continúan guardando identificadores de registros existentes; los campos de texto libre siguen permitiendo escritura manual cuando corresponde.
-- Se mantiene el diseño adaptable y se respeta `prefers-reduced-motion`.
+- Los selectores compartidos usan un único desplegable por campo; se eliminan las barras de búsqueda duplicadas.
+- Actividad, país y zona horaria pasan a listas de opciones; los campos que requieren datos libres conservan su entrada de texto.
+- Se refuerzan los anchos mínimos, el ajuste de formularios, tablas y botones, y los puntos de quiebre para evitar desbordamientos y superposiciones.
 
 ## [1.13.5] - 2026-11-11
 ### Conservado de la iteración anterior

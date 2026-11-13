@@ -1,5 +1,5 @@
 'use strict';
-/* LK ONE 1.13.6 · interfaz. La lógica de negocio vive en core.js; el guardado, en Store. */
+/* LK ONE 1.13.7 · interfaz. La lógica de negocio vive en core.js; el guardado, en Store. */
 const C = LukarisCore, Cat = C.Cat;
 const { esc, saleBalance, saleStatus, today, formatBytes } = C;
 let db, page = 'home', apptView = 'list', calStart = null;
@@ -351,7 +351,7 @@ let selectSearchSeq = 0;
 const sel = (label, name, options, value, full = false) => {
   const id = `lk-choice-${++selectSearchSeq}`;
   const optionHtml = options.map(([v, l, x]) => `<option value="${esc(v)}" ${String(v) === String(value) ? 'selected' : ''} ${x || ''}>${esc(l)}</option>`).join('');
-  return `<label class="field choice-field ${full ? 'full' : ''}" data-name="${name}"><span>${label}</span><input class="choice-search" type="search" data-select-search="${id}" placeholder="Escribe para buscar…" aria-label="Buscar ${esc(String(label).replace(/<[^>]*>/g, ''))}" autocomplete="off"><select id="${id}" name="${name}" data-choice-select>${optionHtml}</select></label>`;
+  return `<label class="field choice-field ${full ? 'full' : ''}" data-name="${name}"><span>${label}</span><select id="${id}" name="${name}" aria-label="${esc(String(label).replace(/<[^>]*>/g, ''))}">${optionHtml}</select></label>`;
 };
 const list = a => a.map(x => [x, x]);
 const clientOpts = () => db.clients.map(c => [c.id, c.name]);
@@ -705,13 +705,13 @@ function settingsPage() {
   const rec = recommendedModules(), active = activeModules(), units = db.organizationUnits, P = db.profile;
   const opt = (list, cur) => list.map(([v, l]) => `<option value="${v}" ${cur === v ? 'selected' : ''}>${l}</option>`).join('');
   const filesTotal = db.attachments.reduce((s, a) => s + (+a.size || 0), 0);
-  $app().innerHTML = head('Administración global', 'Configuración de LK ONE', 'Adapta la plataforma a la actividad, estructura y mercado de cada organización.') +
-    `<section class="card"><h3>1. Perfil y configuración adaptativa del negocio</h3><p class="desc">LK ONE recomienda módulos según la actividad seleccionada. Escribe para buscar la actividad, el país o la zona horaria.</p>
+  $app().innerHTML = head('Administración global', 'Configuración de LK ONE', 'Configura los datos principales de tu organización.') +
+    `<section class="card"><h3>1. Perfil y configuración adaptativa del negocio</h3><p class="desc">LK ONE recomienda módulos según la actividad seleccionada. Selecciona cada opción de las listas.</p>
 <form data-form="profile" novalidate><div class="formgrid">${fld('Nombre del negocio', 'name', { value: P.name, req: true })}
-<label class="field" data-name="activity">Actividad principal<input name="activity" list="dl-activity" value="${esc((Cat.findActivity(P.activity) || {}).label || '')}" autocomplete="off" placeholder="Escribe para buscar…"><datalist id="dl-activity">${Cat.ACTIVITIES.map(x => `<option value="${esc(x.label)}"></option>`).join('')}</datalist></label>
-<label class="field" data-name="country">País<input name="country" list="dl-country" value="${esc(P.country || '')}" autocomplete="off" placeholder="Escribe para buscar…"><datalist id="dl-country">${Cat.COUNTRIES.map(x => `<option value="${esc(x[0])}"></option>`).join('')}</datalist></label>
+${sel('Actividad principal', 'activity', Cat.ACTIVITIES.map(x => [x.id, x.label]), (Cat.findActivity(P.activity) || {}).id || P.activity, true)}
+${sel('País', 'country', [['', 'Selecciona un país'], ...Cat.COUNTRIES.map(x => [x[0], x[0]])], P.country || '', true)}
 ${sel('Moneda principal', 'currency', Cat.CURRENCIES.map(([c, n]) => [c, `${c} · ${n}`]), P.currency)}${sel('Idioma preferido', 'language', [['es', 'Español'], ['en', 'English'], ['pt', 'Português'], ['fr', 'Français']], P.language)}
-<label class="field" data-name="timezone">Zona horaria<input name="timezone" list="dl-tz" value="${esc(P.timezone || 'UTC')}" autocomplete="off" placeholder="Ej. America/Bogota"><datalist id="dl-tz">${(Intl.supportedValuesOf ? Intl.supportedValuesOf('timeZone') : []).map(z => `<option value="${esc(z)}"></option>`).join('')}</datalist></label>
+${sel('Zona horaria', 'timezone', [...new Set(['UTC', 'America/Bogota', ...(Intl.supportedValuesOf ? Intl.supportedValuesOf('timeZone') : [])])].map(z => [z, z]), P.timezone || 'UTC', true)}
 ${sel('Formato de fecha', 'dateFormat', [['auto', 'AAAA-MM-DD (predeterminado)'], ['DMY', 'DD/MM/AAAA'], ['MDY', 'MM/DD/AAAA'], ['YMD', 'AAAA-MM-DD']], P.dateFormat || 'auto')}${sel('Formato de hora', 'timeFormat', [['24h', '24 horas'], ['12h', '12 horas (a. m. / p. m.)']], P.timeFormat || '24h')}${sel('Estructura de administración', 'accountMode', [['single', 'Una empresa'], ['group', 'Grupo de empresas'], ['both', 'Ambas modalidades']], P.accountMode || 'both')}${sel('Producto contratado (modo demostración)', 'productMode', [['suite', 'LUKARIS ONE completo + POS'], ['pos', 'Solo LUKARIS POS']], P.productMode || 'suite')}</div><div class="actions"><button type="submit" class="btn primary">Guardar perfil</button></div></form>
 <div style="margin-top:16px"><b style="font-size:13px">Logotipo</b><div class="inline-actions">${P.logo ? `<img src="${esc(P.logo)}" alt="Logotipo actual" style="height:44px;border:1px solid var(--line);border-radius:8px;padding:3px">` : '<span class="desc" style="margin:0">Sin logotipo.</span>'}<label class="btn">Subir logotipo<input type="file" hidden accept="image/png,image/jpeg,image/webp" data-logo></label>${P.logo ? btn('Quitar', 'logo-remove', {}, 'danger') : ''}</div></div>
 <div style="margin-top:16px"><b style="font-size:13px">Módulos para esta actividad</b><div class="module-grid" style="margin-top:9px">${moduleCatalog.map(([id, l]) => `<label class="module-option"><input type="checkbox" data-module="${id}" ${active.has(id) ? 'checked' : ''}><span>${l}${rec.includes(id) ? ' <span class="pill ok">Recomendado</span>' : ''}</span></label>`).join('')}</div><div class="inline-actions">${btn('Aplicar módulos recomendados', 'apply-recommended')}</div>
@@ -749,30 +749,16 @@ document.addEventListener('click', e => {
 });
 document.addEventListener('submit', e => { const f = e.target.closest('form[data-form]'); if (!f) return; e.preventDefault(); handleForm(f).catch(err => { console.error(err); toast('Ocurrió un error: ' + err.message, 'err'); f.querySelector('[type=submit]')?.removeAttribute('disabled'); }); });
 document.addEventListener('input', e => {
-  const search = e.target.closest('[data-select-search]');
-  if (search) {
-    const select = document.getElementById(search.dataset.selectSearch);
-    if (select) {
-      const query = search.value.trim().toLocaleLowerCase();
-      [...select.options].forEach(option => { option.hidden = !!query && !option.textContent.toLocaleLowerCase().includes(query); });
-      const selected = select.selectedOptions[0];
-      if (query && selected && selected.hidden) select.value = '';
-    }
-  }
   const f = e.target.closest('[data-filter]'); if (f) applyFilters(f.closest('section') || document);
 });
 document.addEventListener('change', async e => {
-  if (e.target.matches('[data-choice-select]')) {
-    const search = document.querySelector(`[data-select-search="${e.target.id}"]`);
-    if (search) { search.value = ''; [...e.target.options].forEach(option => option.hidden = false); }
-  }
   const t = e.target;
   if (t.matches('[data-appearance]')) { db.profile.appearance = { ...(db.profile.appearance || {}), [t.dataset.appearance]: t.value }; save(); applyAppearance(); toast('Apariencia actualizada.'); return; }
   if (t.matches('[data-filter]')) return applyFilters(t.closest('section') || document);
   if (t.matches('[data-module]')) return toggleModule(t.dataset.module, t.checked);
   if (t.matches('[data-import]')) return importBackup(t);
   if (t.matches('[data-logo]')) return uploadLogo(t);
-  if (t.matches('input[name=country]') && t.closest('form[data-form=profile]')) { const c = Cat.findCountry(t.value), f = t.closest('form'); if (c) { f.elements.currency.value = c[2]; f.elements.timezone.value = c[3]; toast(`Moneda (${c[2]}) y zona horaria (${c[3]}) sugeridas para ${c[0]}. Puedes cambiarlas.`); } return; }
+  if (t.matches('select[name=country]') && t.closest('form[data-form=profile]')) { const c = Cat.findCountry(t.value), f = t.closest('form'); if (c) { f.elements.currency.value = c[2]; f.elements.timezone.value = c[3]; toast(`Moneda (${c[2]}) y zona horaria (${c[3]}) sugeridas para ${c[0]}. Puedes cambiarlas.`); } return; }
   if (t.matches('input[data-attach]')) {
     const [ot, oid] = t.dataset.attach.split(':'), files = [...t.files]; t.value = ''; if (!files.length) return;
     const r = await attachFiles(ot, +oid, files); render(); ot === 'client' ? clientDetail(+oid) : apptDetail(+oid);

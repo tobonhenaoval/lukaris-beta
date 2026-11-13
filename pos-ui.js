@@ -1,5 +1,5 @@
 'use strict';
-/* LK POS 1.13.6 · interfaz. Usa las funciones globales de app.js (db, render, save, toast, openModal…) y la lógica de pos-core.js (LKPOS).
+/* LK POS 1.13.7 · interfaz. Usa las funciones globales de app.js (db, render, save, toast, openModal…) y la lógica de pos-core.js (LKPOS).
    Identidad visual: verde petróleo (ver body.pos-mode en styles.css). */
 const P = LKPOS;
 const PosUI = (() => {
